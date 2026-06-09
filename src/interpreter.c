@@ -1338,6 +1338,19 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                     basic_output(err);
                 }
             }
+        } else if (t.type == TOKEN_NAME) {
+            char old_name[256] = "";
+            char new_name[256] = "";
+            parse_string_expression(&ptr, old_name, sizeof(old_name));
+            Token as_tok = get_next_token(&ptr);
+            if (as_tok.type != TOKEN_AS) {
+                report_runtime_error("Syntax error\n");
+            } else {
+                parse_string_expression(&ptr, new_name, sizeof(new_name));
+                if (rename(old_name, new_name) != 0) {
+                    report_runtime_error("File access error\n");
+                }
+            }
         } else if (t.type == TOKEN_DELETE) {
             // DELETE "file"  or DELETE <line_number>
             Token arg = get_next_token(&ptr);

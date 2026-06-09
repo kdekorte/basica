@@ -64,6 +64,7 @@ static const KeywordMap keyword_table[] = {
     {"MID$", TOKEN_MID},
     {"MKDIR", TOKEN_MKDIR},
     {"MOD", TOKEN_MOD},
+    {"NAME", TOKEN_NAME},
     {"NEW", TOKEN_NEW},
     {"NEXT", TOKEN_NEXT},
     {"OCT$", TOKEN_OCT},

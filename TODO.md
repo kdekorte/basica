@@ -20,7 +20,6 @@
 
 ## File and DOS commands
 
-- Add `NAME old AS new`.
 - Add `CHDIR`, `MKDIR`, and `RMDIR` tests for string variables, existing paths, and non-empty directory removal.
 - Add `FILES` formatting closer to DOS/BASICA output.
 - Add current-directory/environment helpers if desired, such as `ENVIRON$`.

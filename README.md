@@ -56,7 +56,7 @@ make test
 - `DATA`, `READ`, `RESTORE`, `RANDOMIZE`, `RND`
 - Numeric and string variables, arrays, `DIM`, `ERASE`
 - `ON ERROR GOTO`
-- File I/O and System: `OPEN`, `CLOSE`, `SEEK`, `PUT`, `GET`, `DELETE`, `KILL`, `CHDIR`, `MKDIR`, `RMDIR`, `FILES`, `SHELL`
+- File I/O and System: `OPEN`, `CLOSE`, `SEEK`, `PUT`, `GET`, `DELETE`, `KILL`, `NAME`, `CHDIR`, `MKDIR`, `RMDIR`, `FILES`, `SHELL`
 - String input functions: `GET$`, `INKEY$`
 - Basic string functions: `ASC`, `CHR$`, `LEFT$`, `RIGHT$`, `MID$`, `UCASE$`, `LCASE$`, `TRIM$`, `TAB`, `SPACE$`, `STR$`, `HEX$`, `OCT$`, `REVERSE`
 - Graphics commands: `SCREEN`, `PSET`, `LINE`, `CIRCLE`, `PAINT`, `COLOR`, `LOCATE`, `CLS`, `SLEEP`

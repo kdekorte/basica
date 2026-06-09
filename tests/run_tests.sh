@@ -33,7 +33,9 @@ TESTS=(
   "tests/get_into_array"
   "tests/delete"
   "tests/delete_line"
+  "tests/name_test"
   "tests/kill_wildcard"
+
   "tests/files"
   "tests/dir_ops"
   "tests/shell_test"
