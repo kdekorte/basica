@@ -1,0 +1,13 @@
+10 REM Multi-dim bounds and FOR variable aftermath
+20 DIM B(2,3)
+30 B(1,1)=10
+40 B(2,3)=20
+50 PRINT B(1,1)
+60 PRINT B(2,3)
+70 FOR I=1 TO 2
+80   FOR J=1 TO 3
+90   NEXT J
+100 NEXT I
+110 PRINT I
+120 PRINT J
+130 END

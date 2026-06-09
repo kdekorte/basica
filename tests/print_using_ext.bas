@@ -1,0 +1,10 @@
+10 A = 12.345
+20 B = 7
+30 C$ = "Hello"
+40 PRINT USING "###.##"; A, B
+50 PRINT USING "#"; B
+60 PRINT USING "!"; C$
+70 PRINT USING "&"; C$
+80 PRINT USING "Value: %g"; A
+90 PRINT USING "##.##"; 1.2, 3.4
+100 END

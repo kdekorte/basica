@@ -1,0 +1,10 @@
+10 REM DIM edge cases
+20 DIM A(2)
+30 A(1)=7
+40 PRINT A(1)
+50 PRINT A(2)
+60 DIM S$(2)
+70 PRINT S$(1)
+80 S$(2)="ok"
+90 PRINT S$(2)
+100 END

@@ -1,0 +1,5 @@
+10 X = 3.14159
+20 PRINT USING "%6.2f", X
+30 PRINT USING "%s", "hello"
+40 PRINT "DONE"
+50 END

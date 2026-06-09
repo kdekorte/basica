@@ -1,0 +1,8 @@
+10 PRINT "SPACE$:[" + SPACE$(5) + "]"
+20 PRINT "SPC:[" + SPC(5) + "]"
+30 PRINT "STRING$ 1:" + STRING$(5, "*")
+40 PRINT "STRING$ 2:" + STRING$(5, 64)
+50 T$ = TIME$
+60 D$ = DATE$
+70 PRINT "LEN TIME$:" + STR$(LEN(T$))
+80 PRINT "LEN DATE$:" + STR$(LEN(D$))

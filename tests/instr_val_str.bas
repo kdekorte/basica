@@ -1,0 +1,10 @@
+10 A$ = "FOOTBALL"
+20 PRINT "1:"; INSTR(A$, "BALL")
+30 PRINT "2:"; INSTR(5, A$, "O")
+40 PRINT "3:"; INSTR(A$, "Z")
+50 V = VAL("123.45")
+60 PRINT "4:"; V
+70 S$ = STR$(456.78)
+80 PRINT "5:"; S$
+90 PRINT "6:"; INT(10.6)
+100 PRINT "7:"; INT(-10.6)

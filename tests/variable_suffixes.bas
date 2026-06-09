@@ -1,0 +1,7 @@
+10 A$ = "String Variable"
+20 A% = 100
+30 A = 50.5
+40 PRINT A$
+50 PRINT A%
+60 PRINT A
+70 END

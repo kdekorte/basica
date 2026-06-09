@@ -1,0 +1,21 @@
+10 REM Array and variable tests
+20 DIM A(2)
+30 A(1)=10: A(2)=20
+40 PRINT A(1)
+50 PRINT A(2)
+60 DIM B(2,2)
+70 B(1,1)=1: B(1,2)=2
+80 B(2,1)=3: B(2,2)=4
+90 PRINT B(2,2)
+100 NAME$="Bob"
+110 PRINT NAME$
+120 DIM S$(2)
+130 S$(1)="hi": S$(2)="bye"
+140 PRINT S$(1)
+150 PRINT S$(2)
+160 LET X = 1 + 2 * 3
+170 PRINT X
+180 FOR I = 1 TO 2
+190   NEXT I
+200 PRINT I
+210 END

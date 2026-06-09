@@ -1,0 +1,13 @@
+10 A$ = " Hello World "
+20 PRINT "1:";UCASE$(A$)
+30 PRINT "2:";LCASE$(A$)
+40 PRINT "3:";TRIM$(A$)
+50 PRINT "4:";LTRIM$(A$)
+60 PRINT "5:";RTRIM$(A$)
+70 B$ = "  padded  "
+80 PRINT "6:";TRIM$(B$)
+90 PRINT "7:";LTRIM$(B$)
+100 PRINT "8:";RTRIM$(B$)
+110 PRINT "9:";HEX$(255)
+120 PRINT "10:";OCT$(8)
+130 PRINT "11:";UCASE$(TRIM$(LCASE$("  MixEd CaSe  ")))

@@ -1,0 +1,11 @@
+10 DIM A(2)
+20 A(1)=7: A(2)=8
+30 ERASE A
+40 PRINT A(1)
+50 PRINT A(2)
+60 DIM S$(2)
+70 S$(1)="x": S$(2)="y"
+80 ERASE S$
+90 PRINT S$(1)
+100 PRINT S$(2)
+110 END

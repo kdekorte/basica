@@ -1,0 +1,5 @@
+10 PRINT "keep"
+20 DELETE 30
+30 PRINT "gone"
+40 PRINT "end"
+50 END

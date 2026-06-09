@@ -1,0 +1,6 @@
+10 REM Identifier underscore test
+20 END_TIME = TIMER
+30 A_B = 5
+40 PRINT A_B
+50 PRINT END_TIME
+60 END

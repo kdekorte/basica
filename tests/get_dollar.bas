@@ -1,0 +1,6 @@
+10 OPEN "tests/get_dollar.tmp" FOR RANDOM AS #1
+20 PUT #1,1,5,"HELLO"
+30 PUT #1,2,5,"WORLD"
+40 PRINT GET$(#1,1,5)
+50 PRINT GET$(#1,2,5)
+60 CLOSE #1
