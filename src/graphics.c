@@ -17,7 +17,8 @@ static int canvas_height = 400;
 static int cursor_x = 0;
 static int cursor_y = 0;
 static TTF_Font *font = NULL;
-static const int FONT_SIZE = 16;         // Use a DOS-style pixel font size
+static char font_path[512] = "";
+static const int FONT_SIZE = 16;         // Initial DOS-style pixel font size
 static int current_row_height = 16;      // Use pixel-based rows for doubled text modes
 static int current_col_width = 16;       // Defaults to 80 columns at doubled resolution
 static int last_key_code = 0;
@@ -27,6 +28,52 @@ static int mode_res_w = 640;
 static int mode_res_h = 200;
 static int text_columns = 80;
 static int text_rows = 25;
+
+static void reload_font(int target_height) {
+    if (font_path[0] == '\0') return;
+    
+    if (font) {
+        TTF_CloseFont(font);
+        font = NULL;
+    }
+
+    // Clear glyph cache
+    for (int i = 0; i < 128; i++) {
+        if (glyph_cache[i]) {
+            SDL_DestroyTexture(glyph_cache[i]);
+            glyph_cache[i] = NULL;
+        }
+    }
+
+    font = TTF_OpenFont(font_path, (float)target_height);
+    if (!font) {
+        fprintf(stderr, "Failed to reload font at size %d: %s\n", target_height, SDL_GetError());
+        return;
+    }
+
+    // Update dimensions based on the new font size
+    int glyph_w = 0, glyph_h = 0;
+    if (TTF_GetStringSize(font, "W", 0, &glyph_w, &glyph_h)) {
+        current_col_width = canvas_width / text_columns;
+        current_row_height = canvas_height / text_rows;
+        
+        int line_skip = TTF_GetFontLineSkip(font);
+        if (line_skip > 0 && line_skip < current_row_height) current_row_height = line_skip;
+        if (glyph_h > 0 && glyph_h < current_row_height) current_row_height = glyph_h;
+    }
+
+    // Re-populate Glyph Cache for ASCII
+    SDL_Color white = {255, 255, 255, 255};
+    for (int i = 32; i < 127; i++) {
+        char s[2] = {(char)i, 0};
+        SDL_Surface* surf = TTF_RenderText_Blended(font, s, 0, white);
+        if (surf) {
+            glyph_cache[i] = SDL_CreateTextureFromSurface(renderer, surf);
+            if (glyph_cache[i]) SDL_SetTextureBlendMode(glyph_cache[i], SDL_BLENDMODE_BLEND);
+            SDL_DestroySurface(surf);
+        }
+    }
+}
 
 void set_screen_mode(int mode) {
     switch(mode) {
@@ -53,7 +100,12 @@ void set_screen_mode(int mode) {
 
     current_col_width = canvas_width / text_columns;
     current_row_height = canvas_height / text_rows;
-    if (font) {
+
+    // Re-scale font and glyph cache for the new resolution
+    if (font_path[0] != '\0') {
+        reload_font(current_row_height);
+    } else if (font) {
+        // Fallback for when we don't have font_path yet
         int glyph_w = 0, glyph_h = 0;
         if (TTF_GetStringSize(font, "W", 0, &glyph_w, &glyph_h)) {
             int line_skip = TTF_GetFontLineSkip(font);
@@ -61,6 +113,7 @@ void set_screen_mode(int mode) {
             if (glyph_h > 0 && glyph_h < current_row_height) current_row_height = glyph_h;
         }
     }
+    
     if (current_row_height < 1) current_row_height = 1;
 
     // Recreate the canvas at the new doubled resolution
@@ -248,44 +301,34 @@ int init_graphics() {
     };
     for (int i = 0; font_candidates[i] != NULL; i++) {
         font = TTF_OpenFont(font_candidates[i], FONT_SIZE);
-        if (font) break;
+        if (font) {
+            strncpy(font_path, font_candidates[i], sizeof(font_path) - 1);
+            break;
+        }
     }
-    if (!font) font = TTF_OpenFont("/System/Library/Fonts/Monaco.ttf", FONT_SIZE);
-    if (!font) font = TTF_OpenFont("/System/Library/Fonts/Supplemental/Courier New.ttf", FONT_SIZE);
-    if (!font) font = TTF_OpenFont("/Library/Fonts/Andale Mono.ttf", FONT_SIZE);
-    if (!font) font = TTF_OpenFont("/Library/Fonts/Arial.ttf", FONT_SIZE);
     if (!font) {
-        fprintf(stderr, "Failed to load font: %s\n", SDL_GetError());
+        const char *fallback_fonts[] = {
+            "/System/Library/Fonts/Monaco.ttf",
+            "/System/Library/Fonts/Supplemental/Courier New.ttf",
+            "/Library/Fonts/Andale Mono.ttf",
+            "/Library/Fonts/Arial.ttf",
+            NULL
+        };
+        for (int i = 0; fallback_fonts[i] != NULL; i++) {
+            font = TTF_OpenFont(fallback_fonts[i], FONT_SIZE);
+            if (font) {
+                strncpy(font_path, fallback_fonts[i], sizeof(font_path) - 1);
+                break;
+            }
+        }
+    }
+    if (!font) {
+        fprintf(stderr, "Failed to load any font: %s\n", SDL_GetError());
         return 0; // Indicate graphics initialization failure
     }
 
-    // Set text cell dimensions for the current mode so SCREEN-based text stays aligned.
-    int columns = text_columns;
-    int glyph_w = 0, glyph_h = 0;
-    if (!TTF_GetStringSize(font, "W", 0, &glyph_w, &glyph_h)) {
-        glyph_w = 0;
-        glyph_h = 0;
-    }
-    current_col_width = canvas_width / columns;
-
-    int line_skip = TTF_GetFontLineSkip(font);
-    int proposed_row_height = canvas_height / text_rows;
-    current_row_height = proposed_row_height;
-    if (line_skip > 0 && line_skip < current_row_height) current_row_height = line_skip;
-    if (glyph_h > 0 && glyph_h < current_row_height) current_row_height = glyph_h;
-    if (current_row_height < 1) current_row_height = 1;
-
-    // Initialize Glyph Cache for ASCII
-    SDL_Color white = {255, 255, 255, 255};
-    for (int i = 32; i < 127; i++) {
-        char s[2] = {(char)i, 0};
-        SDL_Surface* surf = TTF_RenderText_Blended(font, s, 0, white);
-        if (surf) {
-            glyph_cache[i] = SDL_CreateTextureFromSurface(renderer, surf);
-            if (glyph_cache[i]) SDL_SetTextureBlendMode(glyph_cache[i], SDL_BLENDMODE_BLEND);
-            SDL_DestroySurface(surf);
-        }
-    }
+    // Now reload the font at the size matching the current mode
+    reload_font(current_row_height);
 
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
     SDL_SetRenderTarget(renderer, canvas);
