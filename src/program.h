@@ -7,6 +7,7 @@ void list_program();
 void clear_program();
 Statement* get_head();
 Statement* find_line(int line_num);
+Statement* find_next_statement(int line_num);
 void delete_line(int line_num);
 
 #endif

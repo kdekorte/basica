@@ -69,6 +69,7 @@ static const KeywordMap keyword_table[] = {
     {"OCT$", TOKEN_OCT},
     {"ON", TOKEN_ON},
     {"OPEN", TOKEN_OPEN},
+    {"PAINT", TOKEN_PAINT},
     {"PEEK", TOKEN_PEEK},
     {"PLAY", TOKEN_PLAY},
     {"POKE", TOKEN_POKE},

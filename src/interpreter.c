@@ -633,6 +633,7 @@ static void execute_assignment(const char **input, Token var_token) {
     Token eq = get_next_token(input);
     if (eq.type != TOKEN_EQUALS) {
         *input = saved;
+        report_runtime_error("Syntax error\n");
         return;
     }
 
@@ -1671,6 +1672,28 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 ptr = saved;
             }
             draw_circle(cx, cy, radius, col, fill);
+        } else if (t.type == TOKEN_PAINT) { // PAINT (x,y)[,color[,border_color]]
+            get_next_token(&ptr); // (
+            int x = (int)evaluate_expression(&ptr);
+            get_next_token(&ptr); // ,
+            int y = (int)evaluate_expression(&ptr);
+            get_next_token(&ptr); // )
+            
+            // Optional color
+            const char *saved = ptr;
+            Token sep = get_next_token(&ptr);
+            int col = 3;
+            if (sep.type == TOKEN_COMMA) col = (int)evaluate_expression(&ptr);
+            else ptr = saved;
+
+            // Optional border color
+            saved = ptr;
+            sep = get_next_token(&ptr);
+            int border = col;
+            if (sep.type == TOKEN_COMMA) border = (int)evaluate_expression(&ptr);
+            else ptr = saved;
+
+            draw_paint(x, y, col, border);
         } else if (t.type == TOKEN_SCREEN) {
             int mode = (int)evaluate_expression(&ptr);
             init_graphics();
@@ -1810,6 +1833,9 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                     }
                 }
             }
+        } else {
+            // Token was not a recognized command or valid assignment
+            report_runtime_error("Syntax error\n");
         }
     }
     *ptr_addr = ptr;
@@ -1829,16 +1855,16 @@ void run_program() {
     print_col = 0;
     clear_data_pointer();
     Statement *curr = get_head();
-    Statement *this_stmt = NULL;
     const char *resume_ptr = NULL;
     char out_buf[256];
 
     while (curr && !stop_running) {
         handle_events();
-        this_stmt = curr;
-        const char *ptr = (resume_ptr) ? resume_ptr : this_stmt->raw_command;
+        Statement *exec_stmt = curr;
+        int current_line_num = exec_stmt->line_number;
+        const char *ptr = (resume_ptr) ? resume_ptr : exec_stmt->raw_command;
         resume_ptr = NULL;
-        int next_line_number = (curr->next) ? curr->next->line_number : -1;
+        int jumped = 0;
 
         while (*ptr && !stop_running) {
             const char *stmt_start = ptr;
@@ -1850,6 +1876,7 @@ void run_program() {
                 double cond_val = evaluate_expression(&ptr);
                 Token then_tok = get_next_token(&ptr);
                 if (then_tok.type != TOKEN_THEN && then_tok.type != TOKEN_GOTO) {
+                    report_runtime_error("Syntax error\n");
                     break;
                 }
 
@@ -1877,20 +1904,26 @@ void run_program() {
                     const char *check_ptr = ptr;
                     Token first = get_next_token(&check_ptr);
                     if (first.type == TOKEN_NUMBER) {
-                        curr = find_line(first.int_val);
-                        if (!curr) {
+                        Statement *target = find_line(first.int_val);
+                        if (!target) {
                             snprintf(out_buf, sizeof(out_buf), "Undefined line number %d\n", first.int_val);
                             report_runtime_error(out_buf);
+                        } else {
+                            curr = target;
+                            jumped = 1;
                         }
                         break;
                     }
                     if (first.type == TOKEN_GOTO) {
                         Token target = get_next_token(&check_ptr);
                         if (target.type == TOKEN_NUMBER) {
-                            curr = find_line(target.int_val);
-                            if (!curr) {
+                            Statement *target_stmt = find_line(target.int_val);
+                            if (!target_stmt) {
                                 snprintf(out_buf, sizeof(out_buf), "Undefined line number %d\n", target.int_val);
                                 report_runtime_error(out_buf);
+                            } else {
+                                curr = target_stmt;
+                                jumped = 1;
                             }
                             break;
                         }
@@ -1906,7 +1939,7 @@ void run_program() {
                         continue;
                     } else {
                         // Skip rest of line
-                        while (*ptr) ptr++;
+                        ptr = "";
                         break;
                     }
                 }
@@ -1914,7 +1947,11 @@ void run_program() {
             
             if (t.type == TOKEN_FOR) {
                 Token var = get_next_token(&ptr);
-                get_next_token(&ptr); // =
+                Token eq = get_next_token(&ptr);
+                if (eq.type != TOKEN_EQUALS) {
+                    report_runtime_error("Syntax error\n");
+                    break;
+                }
                 double start = evaluate_expression(&ptr);
                 get_next_token(&ptr); // TO
                 double end = evaluate_expression(&ptr);
@@ -1933,13 +1970,12 @@ void run_program() {
 
                 if (should_skip) {
                     int nest = 1;
-                    const char *skip_ptr = ptr;
-                    while (nest > 0 && curr) {
-                        while (*skip_ptr) {
-                            Token skip_t = get_next_token(&skip_ptr);
+                    while (nest > 0 && exec_stmt) {
+                        while (*ptr) {
+                            Token skip_t = get_next_token(&ptr);
                             if (skip_t.type == TOKEN_FOR) nest++;
                             else if (skip_t.type == TOKEN_NEXT) {
-                                Token next_var = get_next_token(&skip_ptr);
+                                Token next_var = get_next_token(&ptr);
                                 if (next_var.type == TOKEN_IDENTIFIER && strcasecmp(next_var.text, var.text) == 0) {
                                     nest--;
                                 } else if (next_var.type == TOKEN_EOF || next_var.type == TOKEN_COLON) {
@@ -1947,21 +1983,19 @@ void run_program() {
                                 }
                             }
                             if (nest == 0) {
-                                if (curr != this_stmt) {
-                                    this_stmt = curr;
-                                    curr = curr->next;
-                                    ptr = "";
-                                } else {
-                                    ptr = skip_ptr;
-                                }
                                 break;
                             }
                         }
-                        if (nest > 0) { 
-                            curr = curr->next; 
-                            if (curr) skip_ptr = curr->raw_command;
+                        if (nest > 0) {
+                            exec_stmt = find_next_statement(exec_stmt->line_number);
+                            if (exec_stmt) {
+                                ptr = exec_stmt->raw_command;
+                            }
                         }
                     }
+                    curr = exec_stmt;
+                    resume_ptr = ptr;
+                    jumped = 1;
                     break; // Exit the command loop for this line
                 }
 
@@ -1969,7 +2003,7 @@ void run_program() {
                     for_stack[for_ptr].var_idx = idx;
                     for_stack[for_ptr].end_val = end;
                     for_stack[for_ptr].step_val = step;
-                    for_stack[for_ptr].start_stmt = this_stmt;
+                    for_stack[for_ptr].start_stmt = exec_stmt;
                     for_stack[for_ptr].start_ptr = ptr;
                     for_ptr++;
                 } else {
@@ -1983,9 +2017,9 @@ void run_program() {
                 double val = evaluate_expression(&ptr);
                 if (val != 0) {
                     // Push only if this WHILE is not already the current active loop
-                    if (while_ptr == 0 || while_stack[while_ptr-1].stmt != this_stmt || while_stack[while_ptr-1].ptr != cond_start) {
+                    if (while_ptr == 0 || while_stack[while_ptr-1].stmt != exec_stmt || while_stack[while_ptr-1].ptr != cond_start) {
                         if (while_ptr < 16) {
-                            while_stack[while_ptr].stmt = this_stmt;
+                            while_stack[while_ptr].stmt = exec_stmt;
                             while_stack[while_ptr].ptr = cond_start;
                             while_ptr++;
                         } else {
@@ -1994,32 +2028,29 @@ void run_program() {
                     }
                 } else {
                     // Condition is false; pop the loop from stack if we were in it
-                    if (while_ptr > 0 && while_stack[while_ptr-1].stmt == this_stmt && while_stack[while_ptr-1].ptr == cond_start) {
+                    if (while_ptr > 0 && while_stack[while_ptr-1].stmt == exec_stmt && while_stack[while_ptr-1].ptr == cond_start) {
                         while_ptr--;
                     }
                     int nest = 1;
-                    const char *skip_ptr = ptr;
-                    while (nest > 0 && curr) {
-                        while (*skip_ptr) {
-                            Token skip_t = get_next_token(&skip_ptr);
+                    while (nest > 0 && exec_stmt) {
+                        while (*ptr) {
+                            Token skip_t = get_next_token(&ptr);
                             if (skip_t.type == TOKEN_WHILE) nest++;
                             else if (skip_t.type == TOKEN_WEND) nest--;
                             if (nest == 0) {
-                                if (curr != this_stmt) {
-                                    this_stmt = curr;
-                                    curr = curr->next;
-                                    ptr = "";
-                                } else {
-                                    ptr = skip_ptr;
-                                }
                                 break;
                             }
                         }
-                        if (nest > 0) { 
-                            curr = curr->next; 
-                            if (curr) skip_ptr = curr->raw_command;
+                        if (nest > 0) {
+                            exec_stmt = find_next_statement(exec_stmt->line_number);
+                            if (exec_stmt) {
+                                ptr = exec_stmt->raw_command;
+                            }
                         }
                     }
+                    curr = exec_stmt;
+                    resume_ptr = ptr;
+                    jumped = 1;
                     break; // Exit command loop for the WHILE line
                 }
                 continue;
@@ -2027,12 +2058,16 @@ void run_program() {
 
             if (t.type == TOKEN_WEND) {
                 if (while_ptr > 0) {
-                    // Jump back to the WHILE statement to re-evaluate condition
                     curr = while_stack[while_ptr-1].stmt;
                     resume_ptr = while_stack[while_ptr-1].ptr;
-                    break; // Exit current line to jump
+                    jumped = 1;
+                    break;
+                } else {
+                    report_runtime_error("WEND without WHILE\n");
+                    break;
                 }
             }
+
 
             if (t.type == TOKEN_ON) {
                 const char *on_ptr = ptr;
@@ -2056,14 +2091,16 @@ void run_program() {
                     Token target = get_next_token(&ptr);
                     if (jump_type.type == TOKEN_GOSUB) {
                         if (gosub_ptr < 32) {
-                            gosub_call_stack[gosub_ptr].stmt = this_stmt;
+                            gosub_call_stack[gosub_ptr].stmt = exec_stmt;
                             gosub_call_stack[gosub_ptr].ptr = ptr; // continue after the list
                             gosub_ptr++;
                             curr = find_line(target.int_val);
+                            jumped = 1;
                             break;
                         }
                     } else {
                         curr = find_line(target.int_val);
+                        jumped = 1;
                         break;
                     }
                 } else {
@@ -2075,14 +2112,16 @@ void run_program() {
             if (t.type == TOKEN_GOSUB) {
                 Token target = get_next_token(&ptr);
                 if (gosub_ptr < 32) {
-                    gosub_call_stack[gosub_ptr].stmt = this_stmt;
+                    gosub_call_stack[gosub_ptr].stmt = exec_stmt;
                     gosub_call_stack[gosub_ptr].ptr = ptr;
                     gosub_ptr++;
                     curr = find_line(target.int_val);
+                    jumped = 1;
                     break;
                 }
                 else {
                     report_runtime_error("GOSUB nested too deep\n");
+                    break;
                 }
             }
 
@@ -2091,6 +2130,10 @@ void run_program() {
                     gosub_ptr--;
                     curr = gosub_call_stack[gosub_ptr].stmt;
                     resume_ptr = gosub_call_stack[gosub_ptr].ptr;
+                    jumped = 1;
+                    break;
+                } else {
+                    report_runtime_error("RETURN without GOSUB\n");
                     break;
                 }
             }
@@ -2114,34 +2157,40 @@ void run_program() {
                     if ((for_stack[f].step_val > 0 && v <= for_stack[f].end_val) || (for_stack[f].step_val < 0 && v >= for_stack[f].end_val)) {
                         curr = for_stack[f].start_stmt;
                         resume_ptr = for_stack[f].start_ptr;
+                        jumped = 1;
                         break;
                     } else {
                         for_ptr = f;
                     }
+                } else {
+                    report_runtime_error("NEXT without FOR\n");
                 }
                 continue;
             }
 
             if (t.type == TOKEN_GOTO) {
                 Token target = get_next_token(&ptr);
-                curr = find_line(target.int_val);
-                if (!curr) {
+                Statement *target_stmt = find_line(target.int_val);
+                if (!target_stmt) {
                     char err[64];
                     snprintf(err, sizeof(err), "Undefined line number %d\n", target.int_val);
                     report_runtime_error(err);
+                } else {
+                    curr = target_stmt;
+                    jumped = 1;
                 }
                 break;
             }
 
             if (t.type == TOKEN_END) {
-                stop_running = 2; // Use a different code for clean exit
+                stop_running = 1;
                 continue;
             }
 
             // Handle stray ELSE token (should not execute if we got here)
             if (t.type == TOKEN_ELSE) {
                 // Skip this ELSE clause - it means condition was true or we just finished THEN part
-                while (*ptr) ptr++;
+                ptr = "";
                 continue;
             }
 
@@ -2149,6 +2198,11 @@ void run_program() {
             ptr = exec_start;
             interpret_line_at_ptr(&ptr, 0);
         }
+
+        if (!stop_running && !jumped) {
+            curr = find_next_statement(current_line_num);
+        }
+
         if (runtime_error_occurred && on_error_goto_line > 0) {
             Statement *trap = find_line(on_error_goto_line);
             if (trap) {
@@ -2159,31 +2213,6 @@ void run_program() {
                 last_runtime_error_msg[0] = '\0';
                 continue;
             }
-            if (last_runtime_error_msg[0]) {
-                basic_output(last_runtime_error_msg);
-                last_runtime_error_msg[0] = '\0';
-            }
         }
-
-        // If the inner execution did not change `curr`, advance to the saved next line.
-        if (curr == this_stmt) {
-            if (next_line_number == -1) {
-                curr = NULL;
-            } else {
-                curr = this_stmt->next;
-            }
-        }
-    }
-    if (stop_running == 1 && this_stmt != NULL) {
-        char msg[64];
-        snprintf(msg, sizeof(msg), "\nBreak in %d\n", this_stmt->line_number);
-        basic_output(msg);
-    } else {
-        if (graphics_is_active()) {
-            // Ensure final canvas is presented so last output is visible in window mode
-            graphics_present_now();
-        }
-        // Optional: Clean up arrays at end of run to prevent leaks
-        clear_variables();
     }
 }

@@ -315,7 +315,7 @@ int init_graphics() {
 
 // Presentation throttling: present to the window at most once per interval (ms)
 static Uint64 last_present = 0;
-static int present_interval_ms = 33; // default ~30 FPS
+static int present_interval_ms = 16; // default ~60 FPS
 
 void set_present_interval(int ms) {
     if (ms < 0) ms = 0;
@@ -401,7 +401,7 @@ void set_pixel(int x, int y, int color) {
     double xs = (double)canvas_width / mode_res_w;
     double ys = (double)canvas_height / mode_res_h;
     
-    SDL_FRect r = { (float)(x * xs), (float)(y * ys), (float)(xs + 0.9f), (float)(ys + 0.9f) };
+    SDL_FRect r = { (float)(x * xs), (float)(y * ys), (float)(xs + 1.0f), (float)(ys + 1.0f) };
     SDL_RenderFillRect(renderer, &r);
     update_graphics();
 }
@@ -427,8 +427,18 @@ void draw_line(int x1, int y1, int x2, int y2, int color, int fill) {
         SDL_FRect r = {
             (float)left, (float)top, (float)width, (float)height
         };
-        if (fill == 2) SDL_RenderFillRect(renderer, &r);
-        else SDL_RenderRect(renderer, &r);
+        if (fill == 2) {
+            SDL_RenderFillRect(renderer, &r);
+        } else {
+            // Draw 4 thick borders matching logical pixel size to prevent PAINT leaks
+            SDL_FRect edges[4] = {
+                { (float)left, (float)top, (float)width, (float)ys },
+                { (float)left, (float)(top + height - ys), (float)width, (float)ys },
+                { (float)left, (float)top, (float)xs, (float)height },
+                { (float)(left + width - xs), (float)top, (float)xs, (float)height }
+            };
+            for (int i = 0; i < 4; i++) SDL_RenderFillRect(renderer, &edges[i]);
+        }
     } else {
         SDL_RenderLine(renderer, (float)sx1, (float)sy1, (float)sx2, (float)sy2);
     }
@@ -444,58 +454,127 @@ void draw_circle(int cx, int cy, int radius, int color, int fill) {
     double xs = (double)canvas_width / mode_res_w;
     double ys = (double)canvas_height / mode_res_h;
 
-    int scx = (int)(cx * xs);
-    int scy = (int)(cy * ys);
-    int sr = (int)(radius * xs); // Use xs scaling for radius
-    
-    if (fill == 2) {
-        // Filled circle using Midpoint Circle Algorithm
-        int x = 0;
-        int y = sr;
-        int d = 3 - 2 * sr;
-        
-        while (x <= y) {
-            // Draw horizontal lines at each y offset
-            SDL_RenderLine(renderer, (float)(scx - x), (float)(scy + y), (float)(scx + x), (float)(scy + y));
-            SDL_RenderLine(renderer, (float)(scx - x), (float)(scy - y), (float)(scx + x), (float)(scy - y));
-            SDL_RenderLine(renderer, (float)(scx - y), (float)(scy + x), (float)(scx + y), (float)(scy + x));
-            SDL_RenderLine(renderer, (float)(scx - y), (float)(scy - x), (float)(scx + y), (float)(scy - x));
-            
-            if (d < 0) {
-                d = d + 4 * x + 6;
-            } else {
-                d = d + 4 * (x - y) + 10;
-                y--;
+    int x = 0;
+    int y = radius;
+    int d = 3 - 2 * radius;
+
+    while (x <= y) {
+        if (fill == 2) {
+            // Filled circle: draw horizontal spans of logical pixels
+            SDL_FRect r1 = { (float)((cx - x) * xs), (float)((cy + y) * ys), (float)((2 * x + 1) * xs), (float)ys };
+            SDL_FRect r2 = { (float)((cx - x) * xs), (float)((cy - y) * ys), (float)((2 * x + 1) * xs), (float)ys };
+            SDL_FRect r3 = { (float)((cx - y) * xs), (float)((cy + x) * ys), (float)((2 * y + 1) * xs), (float)ys };
+            SDL_FRect r4 = { (float)((cx - y) * xs), (float)((cy - x) * ys), (float)((2 * y + 1) * xs), (float)ys };
+            SDL_RenderFillRect(renderer, &r1);
+            SDL_RenderFillRect(renderer, &r2);
+            SDL_RenderFillRect(renderer, &r3);
+            SDL_RenderFillRect(renderer, &r4);
+        } else {
+            // Outline: draw logical pixels as thick blocks to ensure water-tight boundaries
+            int px[8] = {cx + x, cx - x, cx + x, cx - x, cx + y, cx - y, cx + y, cx - y};
+            int py[8] = {cy + y, cy + y, cy - y, cy - y, cy + x, cy + x, cy - x, cy - x};
+            for (int i = 0; i < 8; i++) {
+                // Draw slightly larger blocks (xs+1) to ensure logical pixels 
+                // overlap at corners, creating a water-tight border for PAINT 
+                // commands in high-resolution modes.
+                SDL_FRect r = { (float)(px[i] * xs), (float)(py[i] * ys), (float)(xs + 1.0f), (float)(ys + 1.0f) };
+                SDL_RenderFillRect(renderer, &r);
             }
-            x++;
         }
-    } else {
-        // Circle outline using Midpoint Circle Algorithm
-        int x = 0;
-        int y = sr;
-        int d = 3 - 2 * sr;
-        
-        while (x <= y) {
-            // Draw 8 octants
-            SDL_RenderPoint(renderer, (float)(scx + x), (float)(scy + y));
-            SDL_RenderPoint(renderer, (float)(scx - x), (float)(scy + y));
-            SDL_RenderPoint(renderer, (float)(scx + x), (float)(scy - y));
-            SDL_RenderPoint(renderer, (float)(scx - x), (float)(scy - y));
-            SDL_RenderPoint(renderer, (float)(scx + y), (float)(scy + x));
-            SDL_RenderPoint(renderer, (float)(scx - y), (float)(scy + x));
-            SDL_RenderPoint(renderer, (float)(scx + y), (float)(scy - x));
-            SDL_RenderPoint(renderer, (float)(scx - y), (float)(scy - x));
-            
-            if (d < 0) {
-                d = d + 4 * x + 6;
-            } else {
-                d = d + 4 * (x - y) + 10;
-                y--;
-            }
-            x++;
+
+        if (d < 0) {
+            d = d + 4 * x + 6;
+        } else {
+            d = d + 4 * (x - y) + 10;
+            y--;
         }
+        x++;
     }
     update_graphics();
+}
+
+typedef struct {
+    int x, y;
+} Point;
+
+void draw_paint(int x, int y, int paint_color, int border_color) {
+    if (!renderer || !canvas) return;
+    
+    SDL_Surface *raw_surf = SDL_RenderReadPixels(renderer, NULL);
+    if (!raw_surf) return;
+    // Convert to canvas format to ensure color mapping matches the texture
+    SDL_Surface *surf = SDL_ConvertSurface(raw_surf, SDL_PIXELFORMAT_RGBA8888);
+    SDL_DestroySurface(raw_surf);
+    if (!surf) return;
+
+    SDL_Color sc_paint = get_graphics_color(paint_color);
+    SDL_Color sc_border = get_graphics_color(border_color);
+    
+    const SDL_PixelFormatDetails *details = SDL_GetPixelFormatDetails(surf->format);
+    SDL_Palette *palette = SDL_GetSurfacePalette(surf);
+    Uint32 u_paint = SDL_MapRGBA(details, palette, sc_paint.r, sc_paint.g, sc_paint.b, sc_paint.a);
+    Uint32 u_border = SDL_MapRGBA(details, palette, sc_border.r, sc_border.g, sc_border.b, sc_border.a);
+
+    double xs = (double)canvas_width / mode_res_w;
+    double ys = (double)canvas_height / mode_res_h;
+    int sx = (int)(x * xs);
+    int sy = (int)(y * ys);
+
+    if (sx < 0 || sx >= surf->w || sy < 0 || sy >= surf->h) {
+        SDL_DestroySurface(surf);
+        return;
+    }
+
+    int bpp = details->bytes_per_pixel;
+    int pitch_pixels = surf->pitch / bpp;
+    Uint32 *pixels = (Uint32 *)surf->pixels;
+    Uint32 start_color = pixels[sy * pitch_pixels + sx];
+
+    // Mask out the alpha channel to make comparisons robust against driver-specific
+    // variations in how alpha is handled in the render target or ReadPixels.
+    Uint32 mask = ~details->Amask;
+    if ((start_color & mask) == (u_border & mask) || (start_color & mask) == (u_paint & mask)) {
+        SDL_DestroySurface(surf);
+        return;
+    }
+
+    int capacity = surf->w * surf->h;
+    Point *queue = malloc(capacity * sizeof(Point));
+    if (!queue) {
+        SDL_DestroySurface(surf);
+        return;
+    }
+    int head = 0, tail = 0;
+
+    pixels[sy * pitch_pixels + sx] = u_paint;
+    queue[tail++] = (Point){sx, sy};
+
+    while (head < tail) {
+        Point p = queue[head++];
+        
+        Point neighbors[4] = {
+            {p.x + 1, p.y}, {p.x - 1, p.y}, {p.x, p.y + 1}, {p.x, p.y - 1}
+        };
+
+        for (int i = 0; i < 4; i++) {
+            int nx = neighbors[i].x;
+            int ny = neighbors[i].y;
+
+            if (nx >= 0 && nx < surf->w && ny >= 0 && ny < surf->h) {
+                Uint32 c = pixels[ny * pitch_pixels + nx];
+                if ((c & mask) != (u_border & mask) && (c & mask) != (u_paint & mask)) {
+                    pixels[ny * pitch_pixels + nx] = u_paint;
+                    queue[tail++] = (Point){nx, ny};
+                }
+            }
+        }
+    }
+
+    SDL_UpdateTexture(canvas, NULL, surf->pixels, surf->pitch);
+    SDL_DestroySurface(surf);
+    free(queue);
+    
+    graphics_present_now();
 }
 
 void set_window_title(const char *title) {

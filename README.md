@@ -56,11 +56,13 @@ make test
 - `DATA`, `READ`, `RESTORE`, `RANDOMIZE`, `RND`
 - Numeric and string variables, arrays, `DIM`, `ERASE`
 - `ON ERROR GOTO`
-- File I/O: `OPEN`, `CLOSE`, `SEEK`, `PUT`, `GET`, `DELETE`, `KILL`
+- File I/O and System: `OPEN`, `CLOSE`, `SEEK`, `PUT`, `GET`, `DELETE`, `KILL`, `CHDIR`, `MKDIR`, `RMDIR`, `FILES`, `SHELL`
 - String input functions: `GET$`, `INKEY$`
-- Basic string functions: `ASC`, `CHR$`, `LEFT$`, `RIGHT$`, `MID$`, `UCASE$`, `LCASE$`, `TRIM$`, `TAB`, `SPACE$`, `STR$`, `HEX$`, `OCT$`
-- Graphics commands: `SCREEN`, `PSET`, `LINE`, `CIRCLE`, `COLOR`, `LOCATE`, `CLS`, `SLEEP`
+- Basic string functions: `ASC`, `CHR$`, `LEFT$`, `RIGHT$`, `MID$`, `UCASE$`, `LCASE$`, `TRIM$`, `TAB`, `SPACE$`, `STR$`, `HEX$`, `OCT$`, `REVERSE`
+- Graphics commands: `SCREEN`, `PSET`, `LINE`, `CIRCLE`, `PAINT`, `COLOR`, `LOCATE`, `CLS`, `SLEEP`
 - Sound commands: `BEEP`, `SOUND frequency,duration`, `PLAY "MML"`
+- Robust error reporting for syntax errors and control flow (e.g., `RETURN without GOSUB`)
+- Memory access: `PEEK`, `POKE`, `VARPTR`
 
 ## Future reminders
 

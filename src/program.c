@@ -74,6 +74,15 @@ Statement* find_line(int line_num) {
     return NULL;
 }
 
+Statement* find_next_statement(int line_num) {
+    Statement *curr = head;
+    while (curr) {
+        if (curr->line_number > line_num) return curr;
+        curr = curr->next;
+    }
+    return NULL;
+}
+
 void list_program() {
     Statement *curr = head;
     while (curr) {

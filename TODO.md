@@ -2,9 +2,8 @@
 
 ## Short-term improvements
 
-- Add `.gitignore` entries for `basica`, `*.o`, and test temp files.
 - Restore/init Git tracking for the repo.
-- Implement a more robust error reporting system with specific BASIC error codes (e.g., "Illegal function call", "Subscript out of range").
+- Implement specific BASIC error codes (e.g., "Illegal function call", "Subscript out of range").
 - Expand `PLAY` MML coverage beyond the initial `T`, `O`, `L`, notes, rests, dotted notes, and octave changes.
 
 ## Audio
@@ -16,7 +15,6 @@
 
 ## Interpreter correctness
 
-- Improve parser error recovery so bad statements do not silently do nothing.
 - Add support for `CONT`, `STOP`, and better direct-mode behavior.
 - Audit array indexing: BASICA defaults, `OPTION BASE`, and bounds behavior.
 - Add broader tests for `PEEK`, `POKE`, and `VARPTR` edge cases.
@@ -30,7 +28,6 @@
 
 ## Graphics
 
-- Add `PAINT`.
 - Add `DRAW` command support.
 - Add graphics image block support for `GET`/`PUT`, if distinct from file `GET`/`PUT`.
 - Add screenshot or pixel-buffer tests for graphics primitives.

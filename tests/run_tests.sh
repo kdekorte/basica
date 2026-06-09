@@ -74,6 +74,10 @@ TESTS=(
   "tests/if_else_multiple_statements"
   "tests/if_else_nested"
   "tests/if_else_string_vars"
+
+  # Error Recovery
+  "tests/syntax_error"
+  "tests/return_error"
 )
 
 for t in "${TESTS[@]}"; do
