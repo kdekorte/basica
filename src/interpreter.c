@@ -560,6 +560,27 @@ static int parse_string_expression(const char **input, char *out, int out_size) 
             } else {
                 strftime(term, sizeof(term), "%m-%d-%Y", timeinfo);
             }
+        } else if (t.type == TOKEN_ENVIRON) {
+            get_next_token(input); // (
+            char arg_val[256] = "";
+            int is_str = parse_string_expression(input, arg_val, sizeof(arg_val));
+            if (is_str) {
+                char *ev = getenv(arg_val);
+                if (ev) strncpy(term, ev, sizeof(term)-1);
+            } else {
+                int idx = atoi(arg_val);
+                extern char **environ;
+                if (environ && idx > 0) {
+                    int count = 1;
+                    for (char **e = environ; *e; e++, count++) {
+                        if (count == idx) {
+                            strncpy(term, *e, sizeof(term)-1);
+                            break;
+                        }
+                    }
+                }
+            }
+            get_next_token(input); // )
         } else if (t.type == TOKEN_STR) {
             get_next_token(input); // (
             double val = evaluate_expression(input);
@@ -950,7 +971,7 @@ static int is_string_token(Token t) {
             t.type == TOKEN_MID || t.type == TOKEN_UCASE || t.type == TOKEN_LCASE ||
             t.type == TOKEN_TRIM || t.type == TOKEN_LTRIM || t.type == TOKEN_RTRIM ||
             t.type == TOKEN_STR || t.type == TOKEN_HEX || t.type == TOKEN_OCT ||
-            t.type == TOKEN_STRING_FUNC || t.type == TOKEN_INKEY || t.type == TOKEN_GETS ||
+            t.type == TOKEN_STRING_FUNC || t.type == TOKEN_INKEY || t.type == TOKEN_GETS || t.type == TOKEN_ENVIRON ||
             t.type == TOKEN_TIME || t.type == TOKEN_DATE || t.type == TOKEN_TAB ||
             t.type == TOKEN_SPACE || t.type == TOKEN_SPC);
 }
@@ -1091,12 +1112,7 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 }
                 has_args = 1;
                 char val_buf[512] = "";
-                if (next.type == TOKEN_STRING || next.type == TOKEN_CHR || next.type == TOKEN_TAB || 
-                    next.type == TOKEN_LEFT || next.type == TOKEN_RIGHT || next.type == TOKEN_MID || 
-                    next.type == TOKEN_SPACE || next.type == TOKEN_SPC || next.type == TOKEN_STRING_FUNC || 
-                    next.type == TOKEN_TIME || next.type == TOKEN_DATE || next.type == TOKEN_STR ||
-                    next.type == TOKEN_UCASE || next.type == TOKEN_LCASE || next.type == TOKEN_TRIM || next.type == TOKEN_LTRIM || next.type == TOKEN_RTRIM || next.type == TOKEN_HEX || next.type == TOKEN_OCT || next.type == TOKEN_GETS || next.type == TOKEN_INKEY ||
-                    (next.type == TOKEN_IDENTIFIER && next.text[strlen(next.text)-1] == '$')) {
+                if (is_string_token(next)) {
                     ptr = item_saved;
                     char value[256] = "";
                     parse_string_expression(&ptr, value, sizeof(value));
@@ -1262,6 +1278,12 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 const char *shell_cmd = getenv("SHELL");
                 fflush(stdout);
                 system(shell_cmd ? shell_cmd : "sh");
+            }
+        } else if (t.type == TOKEN_ENVIRON) {
+            char cmd[256] = "";
+            parse_string_expression(&ptr, cmd, sizeof(cmd));
+            if (cmd[0]) {
+                putenv(strdup(cmd));
             }
         } else if (t.type == TOKEN_POKE) {
             int addr = (int)evaluate_expression(&ptr);

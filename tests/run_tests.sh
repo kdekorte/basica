@@ -56,6 +56,7 @@ TESTS=(
   "tests/get_dollar"
   "tests/inkey_dollar"
   "tests/on_error_goto"
+  "tests/environ_test"
 
   # Math and Data handling
   "tests/math_funcs"
