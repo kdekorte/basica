@@ -19,7 +19,6 @@
 
 ## File and DOS commands
 
-- Add `CHDIR`, `MKDIR`, and `RMDIR` tests for string variables, existing paths, and non-empty directory removal.
 - Add `FILES` formatting closer to DOS/BASICA output.
 
 ## Graphics

@@ -1379,10 +1379,11 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 ptr = saved;
             }
         } else if (t.type == TOKEN_KILL) {
-            Token path = get_next_token(&ptr);
-            if (path.type == TOKEN_STRING) {
+            char path_buf[256] = "";
+            parse_string_expression(&ptr, path_buf, sizeof(path_buf));
+            if (path_buf[0]) {
                 glob_t results;
-                int glob_result = glob(path.text, 0, NULL, &results);
+                int glob_result = glob(path_buf, 0, NULL, &results);
                 int deleted_any = 0;
                 if (glob_result == 0) {
                     for (size_t i = 0; i < results.gl_pathc; i++) {
@@ -1400,7 +1401,7 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                     basic_output("Deleted\n");
                 } else if (glob_result == GLOB_NOMATCH) {
                     char err[256];
-                    snprintf(err, sizeof(err), "Delete failed: %s\n", path.text);
+                    snprintf(err, sizeof(err), "Delete failed: %s\n", path_buf);
                     basic_output(err);
                 }
             }

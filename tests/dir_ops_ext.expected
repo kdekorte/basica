@@ -1,0 +1,10 @@
+Testing MKDIR with variable
+Testing MKDIR existing
+Error trapped
+Testing CHDIR
+Testing RMDIR non-empty
+Error trapped
+Cleaning up file
+Deleted
+Testing RMDIR empty
+Success

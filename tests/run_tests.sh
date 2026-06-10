@@ -39,6 +39,7 @@ TESTS=(
 
   "tests/files"
   "tests/dir_ops"
+  "tests/dir_ops_ext"
   "tests/shell_test"
   "tests/sound_play"
 
@@ -108,6 +109,6 @@ done
 echo "All tests PASS"
 
 echo "Cleaning up temp files"
-rm -f tests/filo_test.tmp tests/putget.tmp tests/putfrom.tmp tests/getinto.tmp tests/delete_test.tmp tests/kill_tmp1.tmp tests/kill_tmp2.tmp tests/input_multi.tmp
+rm -rf test_dir_ext tests/filo_test.tmp tests/putget.tmp tests/putfrom.tmp tests/getinto.tmp tests/delete_test.tmp tests/kill_tmp1.tmp tests/kill_tmp2.tmp tests/input_multi.tmp
 
 exit 0
