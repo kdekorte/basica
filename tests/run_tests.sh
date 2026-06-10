@@ -83,6 +83,10 @@ TESTS=(
   # Error Recovery
   "tests/syntax_error"
   "tests/return_error"
+
+  # New Features
+  "tests/lof_loc_test"
+  "tests/files_redirect_test"
 )
 
 for t in "${TESTS[@]}"; do

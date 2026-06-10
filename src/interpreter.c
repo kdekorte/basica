@@ -870,7 +870,7 @@ static double primary(const char **input) {
         get_next_token(input); // consume ')'
         return val;
     }
-    if ((t.type >= TOKEN_ABS && t.type <= TOKEN_SGN) || t.type == TOKEN_EOF_FUNC || t.type == TOKEN_TIMER || t.type == TOKEN_KEY || t.type == TOKEN_ASC || t.type == TOKEN_LEN || t.type == TOKEN_INSTR || t.type == TOKEN_VAL || t.type == TOKEN_PEEK || t.type == TOKEN_VARPTR) {
+    if ((t.type >= TOKEN_ABS && t.type <= TOKEN_SGN) || t.type == TOKEN_EOF_FUNC || t.type == TOKEN_TIMER || t.type == TOKEN_KEY || t.type == TOKEN_ASC || t.type == TOKEN_LEN || t.type == TOKEN_INSTR || t.type == TOKEN_VAL || t.type == TOKEN_PEEK || t.type == TOKEN_VARPTR || t.type == TOKEN_LOF || t.type == TOKEN_LOC) {
         TokenType ft = t.type;
         const char *saved = *input;
         Token next = get_next_token(input);
@@ -958,6 +958,26 @@ static double primary(const char **input) {
                     ungetc(c, file_handles[fnum]);
                     return 0;
                 }
+            case TOKEN_LOF: {
+                int fnum = (int)arg;
+                if (fnum < 1 || fnum >= 16 || !file_handles[fnum]) {
+                    report_runtime_error(ERR_BAD_FILE_NUMBER);
+                    return 0;
+                }
+                long cur = ftell(file_handles[fnum]);
+                fseek(file_handles[fnum], 0, SEEK_END);
+                long size = ftell(file_handles[fnum]);
+                fseek(file_handles[fnum], cur, SEEK_SET);
+                return (double)size;
+            }
+            case TOKEN_LOC: {
+                int fnum = (int)arg;
+                if (fnum < 1 || fnum >= 16 || !file_handles[fnum]) {
+                    report_runtime_error(ERR_BAD_FILE_NUMBER);
+                    return 0;
+                }
+                return (double)ftell(file_handles[fnum]);
+            }
             case TOKEN_TIMER: return (double)clock() / CLOCKS_PER_SEC;
             case TOKEN_KEY: return (double)get_graphics_key();
             case TOKEN_PEEK: {
@@ -1291,16 +1311,25 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
             }
         } else if (t.type == TOKEN_FILES) {
             char pattern[256] = "*.bas";
+            char redirect_file[256] = "";
             const char *saved = ptr;
             Token pat_tok = get_next_token(&ptr);
             if (pat_tok.type == TOKEN_STRING) {
                 strncpy(pattern, pat_tok.text, sizeof(pattern)-1);
+                const char *comma_saved = ptr;
+                if (get_next_token(&ptr).type == TOKEN_COMMA) {
+                    parse_string_expression(&ptr, redirect_file, sizeof(redirect_file));
+                } else {
+                    ptr = comma_saved;
+                }
             } else {
                 ptr = saved;
             }
             glob_t results; // Use glob.h for wildcard matching
             int res = glob(pattern, GLOB_NOCHECK, NULL, &results); // GLOB_NOCHECK returns pattern if no match
             if (res == 0) {
+                FILE *out = NULL;
+                if (redirect_file[0]) out = fopen(redirect_file, "w");
                 for (size_t i = 0; i < results.gl_pathc; i++) {
                     struct stat st;
                     char datestr[64] = "";
@@ -1308,16 +1337,21 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                         struct tm *tm = localtime(&st.st_mtime);
                         if (tm) strftime(datestr, sizeof(datestr), "%m-%d-%y  %I:%M%p", tm); // two spaces for BASICA-like format
                     }
-                    char entry[512];
-                    if (S_ISDIR(st.st_mode)) {
-                        snprintf(entry, sizeof(entry), "%s %13s %s\n", datestr[0] ? datestr : "", "<DIR>", results.gl_pathv[i]);
+                    if (out) {
+                        fprintf(out, "%s\n", results.gl_pathv[i]);
                     } else {
-                        long long fsize = 0;
-                        if (stat(results.gl_pathv[i], &st) == 0) fsize = (long long)st.st_size;
-                        snprintf(entry, sizeof(entry), "%s %13lld %s\n", datestr[0] ? datestr : "", fsize, results.gl_pathv[i]);
+                        char entry[512];
+                        if (S_ISDIR(st.st_mode)) {
+                            snprintf(entry, sizeof(entry), "%s %13s %s\n", datestr[0] ? datestr : "", "<DIR>", results.gl_pathv[i]);
+                        } else {
+                            long long fsize = 0;
+                            if (stat(results.gl_pathv[i], &st) == 0) fsize = (long long)st.st_size;
+                            snprintf(entry, sizeof(entry), "%s %13lld %s\n", datestr[0] ? datestr : "", fsize, results.gl_pathv[i]);
+                        }
+                        basic_output(entry);
                     }
-                    basic_output(entry);
                 }
+                if (out) fclose(out);
                 globfree(&results);
             } else {
                 basic_output("No files found or error.\n");
@@ -1415,7 +1449,8 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 }
             }
         } else if (t.type == TOKEN_OPEN) {
-            Token path = get_next_token(&ptr);
+            char path_buf[256] = "";
+            parse_string_expression(&ptr, path_buf, sizeof(path_buf));
             get_next_token(&ptr); // FOR
             Token mode = get_next_token(&ptr);
             get_next_token(&ptr); // AS
@@ -1428,7 +1463,7 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 else if (strcasecmp(m, "INPUT") == 0) mode_str = "r";
                 else if (strcasecmp(m, "RANDOM") == 0) mode_str = "w+";
                 else if (strcasecmp(m, "RWB") == 0 || strcasecmp(m, "RW") == 0) mode_str = "w+";
-                file_handles[fnum] = fopen(path.text, mode_str);
+                file_handles[fnum] = fopen(path_buf, mode_str);
                 if (!file_handles[fnum]) {
                     report_runtime_error(ERR_FILE_NOT_FOUND);
                 }

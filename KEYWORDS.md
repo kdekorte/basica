@@ -38,7 +38,7 @@
 - `CLOSE [#n]`: Closes files.
 - `DELETE "file" | line`: Deletes a file or program line.
 - `ENVIRON "VAR=VALUE"`: Sets environment variables.
-- `FILES ["pattern"]`: Lists files (wildcards supported). Output shows modification date/time, size (or `<DIR>`), and filename — formatted similar to DOS/BASICA.
+- `FILES ["pattern"] [, "output_file"]`: Lists files (wildcards supported). Output shows modification date/time, size (or `<DIR>`), and filename — formatted similar to DOS/BASICA. If `"output_file"` is provided, filenames are written to that file (one per line).
 - `GET #n, record, length, var$`: Binary/Random file input.
 - `KILL "pattern"`: Deletes files using wildcards.
 - `MKDIR "path"`: Creates a directory.
@@ -64,6 +64,8 @@
 ## Numeric Functions
 - `ABS(n)`, `SQR(n)`, `SIN(n)`, `COS(n)`, `TAN(n)`, `ATN(n)`
 - `EXP(n)`, `LOG(n)`, `INT(n)`, `FIX(n)`, `RND[(n)]`, `SGN(n)`
+- `LOF(n)`: Length of file #n in bytes.
+- `LOC(n)`: Current position in file #n.
 - `ASC(s$)`: ASCII value of first character.
 - `INSTR([start,] s1$, s2$)`: String search.
 - `LEN(s$)`: String length.
