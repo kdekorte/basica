@@ -17,10 +17,6 @@
 - Add support for `CONT`, `STOP`, and better direct-mode behavior.
 - Add broader tests for `PEEK`, `POKE`, and `VARPTR` edge cases.
 
-## File and DOS commands
-
-- Add `FILES` formatting closer to DOS/BASICA output.
-
 ## Graphics
 
 - Add graphics image block support for `GET`/`PUT`, if distinct from file `GET`/`PUT`.

@@ -38,7 +38,7 @@
 - `CLOSE [#n]`: Closes files.
 - `DELETE "file" | line`: Deletes a file or program line.
 - `ENVIRON "VAR=VALUE"`: Sets environment variables.
-- `FILES ["pattern"]`: Lists files (wildcards supported).
+- `FILES ["pattern"]`: Lists files (wildcards supported). Output shows modification date/time, size (or `<DIR>`), and filename — formatted similar to DOS/BASICA.
 - `GET #n, record, length, var$`: Binary/Random file input.
 - `KILL "pattern"`: Deletes files using wildcards.
 - `MKDIR "path"`: Creates a directory.

@@ -1243,12 +1243,22 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
             int res = glob(pattern, GLOB_NOCHECK, NULL, &results); // GLOB_NOCHECK returns pattern if no match
             if (res == 0) {
                 for (size_t i = 0; i < results.gl_pathc; i++) {
-                    char entry[256];
-                    snprintf(entry, sizeof(entry), "%-14s", results.gl_pathv[i]);
+                    struct stat st;
+                    char datestr[64] = "";
+                    if (stat(results.gl_pathv[i], &st) == 0) {
+                        struct tm *tm = localtime(&st.st_mtime);
+                        if (tm) strftime(datestr, sizeof(datestr), "%m-%d-%y  %I:%M%p", tm); // two spaces for BASICA-like format
+                    }
+                    char entry[512];
+                    if (S_ISDIR(st.st_mode)) {
+                        snprintf(entry, sizeof(entry), "%s %13s %s\n", datestr[0] ? datestr : "", "<DIR>", results.gl_pathv[i]);
+                    } else {
+                        long long fsize = 0;
+                        if (stat(results.gl_pathv[i], &st) == 0) fsize = (long long)st.st_size;
+                        snprintf(entry, sizeof(entry), "%s %13lld %s\n", datestr[0] ? datestr : "", fsize, results.gl_pathv[i]);
+                    }
                     basic_output(entry);
-                    if ((i + 1) % 4 == 0) basic_output("\n");
                 }
-                if (results.gl_pathc % 4 != 0) basic_output("\n");
                 globfree(&results);
             } else {
                 basic_output("No files found or error.\n");

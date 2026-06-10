@@ -87,6 +87,13 @@ TESTS=(
 
 for t in "${TESTS[@]}"; do
   echo "Running $t.bas"
+  # Prepare deterministic fixtures for tests that rely on filesystem timestamps
+  if [ "$t" = "tests/files" ]; then
+    printf "test\n" > tests/f.tmp
+    # Set a fixed timestamp: 2026-06-10 09:01:16
+    touch -t 202606100901.16 tests/f.tmp
+  fi
+
   OUT=$(./basica "$t.bas" 2>&1)
   EXP_FILE="$t.expected"
   if [ ! -f "$EXP_FILE" ]; then
