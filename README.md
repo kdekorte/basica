@@ -51,18 +51,9 @@ make test
 
 ## Supported features
 
-- Direct mode and line-numbered program entry
-- `PRINT`, `LET`, `INPUT`, `IF`, `FOR`, `NEXT`, `GOTO`, `GOSUB`, `RETURN`, `END`
-- `DATA`, `READ`, `RESTORE`, `RANDOMIZE`, `RND`
-- Numeric and string variables, arrays, `DIM`, `ERASE`, `OPTION BASE`
-- `ON ERROR GOTO`, `RESUME`
-- File I/O and System: `OPEN`, `CLOSE`, `SEEK`, `PUT`, `GET`, `DELETE`, `KILL`, `NAME`, `CHDIR`, `MKDIR`, `RMDIR`, `FILES`, `SHELL`, `ENVIRON`
-- String input functions: `GET$`, `INKEY$`
-- Basic string functions: `ASC`, `CHR$`, `LEFT$`, `RIGHT$`, `MID$`, `UCASE$`, `LCASE$`, `TRIM$`, `TAB`, `SPACE$`, `STR$`, `HEX$`, `OCT$`, `REVERSE`, `ENVIRON$`
-- Graphics commands: `SCREEN`, `PSET`, `LINE`, `CIRCLE`, `PAINT`, `COLOR`, `LOCATE`, `CLS`, `SLEEP`
-- Sound commands: `BEEP`, `SOUND frequency,duration`, `PLAY "MML"`
-- Robust error reporting for syntax errors and control flow (e.g., `RETURN without GOSUB`)
-- Memory access: `PEEK`, `POKE`, `VARPTR`
+Basica supports a wide range of IBM BASICA-compatible commands, including file I/O, graphics, sound, and robust control flow. 
+
+For a full list of supported commands and their exact syntax, please refer to KEYWORDS.md.
 
 ## Future reminders
 

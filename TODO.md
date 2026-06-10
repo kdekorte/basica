@@ -35,7 +35,6 @@
 
 ## UX and documentation
 
-- Document exact supported BASICA keywords and syntax in README.
 - Add a command-line option to dump supported commands.
 - Add a command support matrix: supported, partial, planned.
 - Add examples for file I/O, graphics, sound, arrays, and error handling.
