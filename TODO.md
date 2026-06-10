@@ -2,7 +2,6 @@
 
 ## Short-term improvements
 
-- Implement specific BASIC error codes (e.g., "Illegal function call", "Subscript out of range").
 - Expand `PLAY` MML coverage beyond the initial `T`, `O`, `L`, notes, rests, dotted notes, and octave changes.
 
 ## Audio

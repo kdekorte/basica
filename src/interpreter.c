@@ -27,6 +27,9 @@ static unsigned int rnd_seed = 1;
 static double last_rnd_value = 0.0;
 static int on_error_goto_line = 0;
 static int runtime_error_occurred = 0;
+static int last_runtime_error_code = 0;
+static int last_runtime_error_line = 0;
+static int current_executing_line = 0;
 static char last_runtime_error_msg[256] = "";
 static Statement *error_stmt = NULL;
 static const char *error_ptr = NULL;
@@ -41,14 +44,67 @@ typedef struct {
 static UserFunction user_functions[64];
 static int user_function_count = 0;
 
-static void report_runtime_error(const char *msg) {
+static const char* get_error_message(RuntimeError code) {
+    switch (code) {
+        case ERR_NEXT_WITHOUT_FOR: return "NEXT without FOR";
+        case ERR_SYNTAX_ERROR: return "Syntax error";
+        case ERR_RETURN_WITHOUT_GOSUB: return "RETURN without GOSUB";
+        case ERR_OUT_OF_DATA: return "Out of DATA";
+        case ERR_ILLEGAL_FUNCTION_CALL: return "Illegal function call";
+        case ERR_OVERFLOW: return "Overflow";
+        case ERR_OUT_OF_MEMORY: return "Out of memory";
+        case ERR_UNDEFINED_LINE_NUMBER: return "Undefined line number";
+        case ERR_SUBSCRIPT_OUT_OF_RANGE: return "Subscript out of range";
+        case ERR_DUPLICATE_DEFINITION: return "Duplicate Definition";
+        case ERR_DIVISION_BY_ZERO: return "Division by zero";
+        case ERR_TYPE_MISMATCH: return "Type mismatch";
+        case ERR_OUT_OF_STRING_SPACE: return "Out of string space";
+        case ERR_CANT_RESUME: return "Can't RESUME";
+        case ERR_RESUME_WITHOUT_ERROR: return "RESUME without error";
+        case ERR_FOR_WITHOUT_NEXT: return "FOR without NEXT";
+        case ERR_WHILE_WITHOUT_WEND: return "WHILE without WEND";
+        case ERR_WEND_WITHOUT_WHILE: return "WEND without WHILE";
+        case ERR_FIELD_OVERFLOW: return "FIELD overflow";
+        case ERR_INTERNAL_ERROR: return "Internal error";
+        case ERR_BAD_FILE_NUMBER: return "Bad file number";
+        case ERR_FILE_NOT_FOUND: return "File not found";
+        case ERR_BAD_FILE_MODE: return "Bad file mode";
+        case ERR_FILE_ALREADY_OPEN: return "File already open";
+        case ERR_DEVICE_IO_ERROR: return "Device I/O error";
+        case ERR_FILE_ALREADY_EXISTS: return "File already exists";
+        case ERR_BAD_RECORD_LENGTH: return "Bad record length";
+        case ERR_DISK_FULL: return "Disk full";
+        case ERR_INPUT_PAST_END: return "Input past end";
+        case ERR_BAD_RECORD_NUMBER: return "Bad record number";
+        case ERR_BAD_FILE_NAME: return "Bad file name";
+        case ERR_TOO_MANY_FILES: return "Too many files";
+        case ERR_PERMISSION_DENIED: return "Permission Denied";
+        case ERR_DISK_NOT_READY: return "Disk not ready";
+        case ERR_PATH_FILE_ACCESS_ERROR: return "Path/File access error";
+        case ERR_PATH_NOT_FOUND: return "Path not found";
+        default: return "Unprintable error";
+    }
+}
+
+static void report_runtime_error(RuntimeError code) {
+    const char *msg = get_error_message(code);
+    last_runtime_error_code = (int)code;
+    last_runtime_error_line = current_executing_line;
+    
     if (msg) {
         strncpy(last_runtime_error_msg, msg, sizeof(last_runtime_error_msg) - 1);
         last_runtime_error_msg[sizeof(last_runtime_error_msg) - 1] = '\0';
     } else {
         last_runtime_error_msg[0] = '\0';
     }
-    if (msg && on_error_goto_line == 0) basic_output(msg);
+    
+    if (on_error_goto_line == 0) {
+        char full_msg[300];
+        if (msg) {
+            snprintf(full_msg, sizeof(full_msg), "%s in %d\n", msg, current_executing_line);
+            basic_output(full_msg);
+        }
+    }
     runtime_error_occurred = 1;
     stop_running = 1;
 }
@@ -183,7 +239,7 @@ static int read_next_data_into_variable(const char **input) {
     if (!parse_read_variable(input, &var_idx, &array_idx, &is_string)) return 0;
     char item[256] = "";
     if (!get_next_data_item(item, sizeof(item))) {
-        report_runtime_error("Out of data\n");
+        report_runtime_error(ERR_OUT_OF_DATA);
         return 0;
     }
     if (is_string) {
@@ -293,7 +349,7 @@ static int while_ptr = 0;
 // Helper function to convert multi-dimensional indices to linear index
 static int calc_linear_index(Variable *var, int *indices, int num_indices) {
     if (var->num_dims == 0 || var->num_dims != num_indices) {
-        report_runtime_error("Subscript out of range\n");
+        report_runtime_error(ERR_SUBSCRIPT_OUT_OF_RANGE);
         return -1;
     }
     
@@ -303,7 +359,7 @@ static int calc_linear_index(Variable *var, int *indices, int num_indices) {
         int max_subscript = var->dims[i];
         int val = indices[i];
         if (val < option_base || val > max_subscript) {
-            report_runtime_error("Subscript out of range\n");
+            report_runtime_error(ERR_SUBSCRIPT_OUT_OF_RANGE);
             return -1;
         }
         int offset = (option_base == 0) ? val : (val - 1);
@@ -481,7 +537,7 @@ static int parse_string_expression(const char **input, char *out, int out_size) 
             int len = (int)evaluate_expression(input);
             get_next_token(input); // )
             if (fnum < 1 || fnum >= 16 || !file_handles[fnum]) {
-                report_runtime_error("File not open\n");
+                report_runtime_error(ERR_BAD_FILE_NUMBER);
                 return 0;
             }
             long offset = (long)((rec - 1) * len);
@@ -692,7 +748,7 @@ static void execute_assignment(const char **input, Token var_token) {
     Token eq = get_next_token(input);
     if (eq.type != TOKEN_EQUALS) {
         *input = saved;
-        report_runtime_error("Syntax error\n");
+        report_runtime_error(ERR_SYNTAX_ERROR);
         return;
     }
 
@@ -769,6 +825,9 @@ static double primary(const char **input) {
     Token t = get_next_token(input);
     if (t.type == TOKEN_NUMBER) return t.double_val;
     if (t.type == TOKEN_IDENTIFIER) {
+        if (strcasecmp(t.text, "ERR") == 0) return (double)last_runtime_error_code;
+        if (strcasecmp(t.text, "ERL") == 0) return (double)last_runtime_error_line;
+
         if (strncasecmp(t.text, "FN", 2) == 0) {
             const char *lp_ptr = *input;
             if (get_next_token(&lp_ptr).type == TOKEN_LPAREN) {
@@ -891,7 +950,7 @@ static double primary(const char **input) {
             case TOKEN_EOF_FUNC: {
                 int fnum = (int)arg;
                 if (fnum < 1 || fnum >= 16 || !file_handles[fnum]) {
-                    report_runtime_error("File not open\n");
+                    report_runtime_error(ERR_BAD_FILE_NUMBER);
                     return 0;
                 }
                 int c = fgetc(file_handles[fnum]);
@@ -1071,7 +1130,7 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 ptr = check_ptr;
                 fnum = (int)evaluate_expression(&ptr);
                 if (fnum < 1 || fnum >= 16 || !file_handles[fnum]) {
-                    report_runtime_error("File not open\n");
+                    report_runtime_error(ERR_BAD_FILE_NUMBER);
                     return;
                 }
                 const char *comma_ptr = ptr;
@@ -1266,15 +1325,15 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
         } else if (t.type == TOKEN_CHDIR) {
             char path[256] = "";
             parse_string_expression(&ptr, path, sizeof(path));
-            if (chdir(path) != 0) report_runtime_error("Path not found\n");
+            if (chdir(path) != 0) report_runtime_error(ERR_PATH_NOT_FOUND);
         } else if (t.type == TOKEN_MKDIR) {
             char path[256] = "";
             parse_string_expression(&ptr, path, sizeof(path));
-            if (mkdir(path, 0777) != 0) report_runtime_error("Path access error\n");
+            if (mkdir(path, 0777) != 0) report_runtime_error(ERR_PATH_FILE_ACCESS_ERROR);
         } else if (t.type == TOKEN_RMDIR) {
             char path[256] = "";
             parse_string_expression(&ptr, path, sizeof(path));
-            if (rmdir(path) != 0) report_runtime_error("Path access error\n");
+            if (rmdir(path) != 0) report_runtime_error(ERR_PATH_FILE_ACCESS_ERROR);
         } else if (t.type == TOKEN_SHELL) {
             char cmd[256] = "";
             const char *saved = ptr;
@@ -1324,7 +1383,7 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
             int is_str2 = (v2_tok.text[0] != '\0' && v2_tok.text[strlen(v2_tok.text)-1] == '$');
 
             if (is_str1 != is_str2) {
-                report_runtime_error("Type mismatch\n");
+                report_runtime_error(ERR_TYPE_MISMATCH);
             } else if (a_idx1 == -1 && a_idx2 == -1) {
                 // Swapping entire variables/arrays
                 double tmp_val = vars[idx1].value; vars[idx1].value = vars[idx2].value; vars[idx2].value = tmp_val;
@@ -1371,9 +1430,7 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 else if (strcasecmp(m, "RWB") == 0 || strcasecmp(m, "RW") == 0) mode_str = "w+";
                 file_handles[fnum] = fopen(path.text, mode_str);
                 if (!file_handles[fnum]) {
-                    char err[256];
-                    snprintf(err, sizeof(err), "File not found: %s\n", path.text);
-                    report_runtime_error(err);
+                    report_runtime_error(ERR_FILE_NOT_FOUND);
                 }
             }
         } else if (t.type == TOKEN_CLOSE) {
@@ -1516,11 +1573,11 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
             parse_string_expression(&ptr, old_name, sizeof(old_name));
             Token as_tok = get_next_token(&ptr);
             if (as_tok.type != TOKEN_AS) {
-                report_runtime_error("Syntax error\n");
+                report_runtime_error(ERR_SYNTAX_ERROR);
             } else {
                 parse_string_expression(&ptr, new_name, sizeof(new_name));
                 if (rename(old_name, new_name) != 0) {
-                    report_runtime_error("File access error\n");
+                    report_runtime_error(ERR_PATH_FILE_ACCESS_ERROR);
                 }
             }
         } else if (t.type == TOKEN_DELETE) {
@@ -1650,7 +1707,7 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
             char line[256] = "";
             if (fnum != -1) {
                 if (fnum < 1 || fnum >= 16 || !file_handles[fnum]) {
-                    report_runtime_error("File not open\n");
+                    report_runtime_error(ERR_BAD_FILE_NUMBER);
                 } else if (fgets(line, sizeof(line), file_handles[fnum])) {
                     line[strcspn(line, "\r\n")] = 0;
                 }
@@ -1701,17 +1758,17 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
         } else if (t.type == TOKEN_OPTION) {
             Token base = get_next_token(&ptr);
             if (base.type != TOKEN_BASE) {
-                report_runtime_error("Syntax error\n");
+                report_runtime_error(ERR_SYNTAX_ERROR);
             } else {
                 Token val_tok = get_next_token(&ptr);
                 if (val_tok.type != TOKEN_NUMBER) {
-                    report_runtime_error("Syntax error\n");
+                    report_runtime_error(ERR_SYNTAX_ERROR);
                 } else {
                     int val = val_tok.int_val;
                     if (val != 0 && val != 1) {
-                        report_runtime_error("Invalid option base value\n");
+                        report_runtime_error(ERR_ILLEGAL_FUNCTION_CALL);
                     } else if (option_base_set || arrays_dimensioned) {
-                        report_runtime_error("Duplicate Definition\n");
+                        report_runtime_error(ERR_DUPLICATE_DEFINITION);
                     } else {
                         option_base = val;
                         option_base_set = 1;
@@ -1754,7 +1811,7 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 for (int i = 0; i < num_dims; i++) {
                     int dim_size = (option_base == 0) ? (dims[i] + 1) : dims[i];
                     if (dim_size <= 0) {
-                        report_runtime_error("Subscript out of range\n");
+                        report_runtime_error(ERR_SUBSCRIPT_OUT_OF_RANGE);
                         dim_err = 1;
                         break;
                     }
@@ -1764,13 +1821,13 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 
                 if (var.text[strlen(var.text)-1] == '$') {
                     if (vars[idx].s_array) {
-                        report_runtime_error("Duplicate Definition\n");
+                        report_runtime_error(ERR_DUPLICATE_DEFINITION);
                         break;
                     }
                     vars[idx].s_array = calloc(total_size, sizeof(char*));
                 } else {
                     if (vars[idx].array) {
-                        report_runtime_error("Duplicate Definition\n");
+                        report_runtime_error(ERR_DUPLICATE_DEFINITION);
                         break;
                     }
                     vars[idx].array = malloc(total_size * sizeof(double));
@@ -1798,11 +1855,11 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 if (get_next_token(&ptr).type == TOKEN_COMMA) {
                     y = (int)evaluate_expression(&ptr);
                 } else {
-                    report_runtime_error("Syntax error\n");
+                    report_runtime_error(ERR_SYNTAX_ERROR);
                     return;
                 }
                 if (get_next_token(&ptr).type != TOKEN_RPAREN) {
-                    report_runtime_error("Syntax error\n");
+                    report_runtime_error(ERR_SYNTAX_ERROR);
                     return;
                 }
             } else {
@@ -1811,7 +1868,7 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 if (get_next_token(&ptr).type == TOKEN_COMMA) {
                     y = (int)evaluate_expression(&ptr);
                 } else {
-                    report_runtime_error("Syntax error\n");
+                    report_runtime_error(ERR_SYNTAX_ERROR);
                     return;
                 }
             }
@@ -1976,7 +2033,7 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                     if (fnum >= 1 && fnum < 16 && file_handles[fnum]) {
                         fseek(file_handles[fnum], (long)pos, SEEK_SET);
                     } else {
-                        report_runtime_error("File not open\n");
+                        report_runtime_error(ERR_BAD_FILE_NUMBER);
                     }
                 } else {
                     ptr = saved;
@@ -2021,7 +2078,7 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                         }
 
                         if (fnum < 1 || fnum >= 16 || !file_handles[fnum]) {
-                            report_runtime_error("File not open\n");
+                            report_runtime_error(ERR_BAD_FILE_NUMBER);
                         } else {
                             
                             long offset = (long)((rec - 1) * len);
@@ -2059,7 +2116,7 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                                 int idx = find_variable(var.text);
                                 int array_idx = parse_array_index(&ptr, idx);
                                 if (fnum < 1 || fnum >= 16 || !file_handles[fnum]) {
-                                    report_runtime_error("File not open\n");
+                                    report_runtime_error(ERR_BAD_FILE_NUMBER);
                                 } else {
                                     long offset = (long)((rec - 1) * len);
                                     fseek(file_handles[fnum], offset, SEEK_SET);
@@ -2087,7 +2144,7 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
             }
         } else {
             // Token was not a recognized command or valid assignment
-            report_runtime_error("Syntax error\n");
+            report_runtime_error(ERR_SYNTAX_ERROR);
         }
     }
     *ptr_addr = ptr;
@@ -2113,12 +2170,10 @@ void run_program() {
     error_ptr = NULL;
     error_next_ptr = NULL;
 
-    char out_buf[256];
-
     while (curr && !stop_running) {
         handle_events();
         Statement *exec_stmt = curr;
-        int current_line_num = exec_stmt->line_number;
+        current_executing_line = exec_stmt->line_number;
         const char *ptr = (resume_ptr) ? resume_ptr : exec_stmt->raw_command;
         const char *stmt_start = ptr;
         resume_ptr = NULL;
@@ -2134,7 +2189,7 @@ void run_program() {
                 double cond_val = evaluate_expression(&ptr);
                 Token then_tok = get_next_token(&ptr);
                 if (then_tok.type != TOKEN_THEN && then_tok.type != TOKEN_GOTO) {
-                    report_runtime_error("Syntax error\n");
+                    report_runtime_error(ERR_SYNTAX_ERROR);
                     break;
                 }
 
@@ -2164,8 +2219,7 @@ void run_program() {
                     if (first.type == TOKEN_NUMBER) {
                         Statement *target = find_line(first.int_val);
                         if (!target) {
-                            snprintf(out_buf, sizeof(out_buf), "Undefined line number %d\n", first.int_val);
-                            report_runtime_error(out_buf);
+                            report_runtime_error(ERR_UNDEFINED_LINE_NUMBER);
                         } else {
                             curr = target;
                             jumped = 1;
@@ -2177,8 +2231,7 @@ void run_program() {
                         if (target.type == TOKEN_NUMBER) {
                             Statement *target_stmt = find_line(target.int_val);
                             if (!target_stmt) {
-                                snprintf(out_buf, sizeof(out_buf), "Undefined line number %d\n", target.int_val);
-                                report_runtime_error(out_buf);
+                                report_runtime_error(ERR_UNDEFINED_LINE_NUMBER);
                             } else {
                                 curr = target_stmt;
                                 jumped = 1;
@@ -2207,7 +2260,7 @@ void run_program() {
                 Token var = get_next_token(&ptr);
                 Token eq = get_next_token(&ptr);
                 if (eq.type != TOKEN_EQUALS) {
-                    report_runtime_error("Syntax error\n");
+                    report_runtime_error(ERR_SYNTAX_ERROR);
                     break;
                 }
                 double start = evaluate_expression(&ptr);
@@ -2265,7 +2318,7 @@ void run_program() {
                     for_stack[for_ptr].start_ptr = ptr;
                     for_ptr++;
                 } else {
-                    report_runtime_error("FOR nested too deep\n");
+                    report_runtime_error(ERR_OUT_OF_MEMORY);
                 }
                 continue;
             }
@@ -2281,7 +2334,7 @@ void run_program() {
                             while_stack[while_ptr].ptr = cond_start;
                             while_ptr++;
                         } else {
-                            report_runtime_error("WHILE nested too deep\n");
+                            report_runtime_error(ERR_OUT_OF_MEMORY);
                         }
                     }
                 } else {
@@ -2321,7 +2374,7 @@ void run_program() {
                     jumped = 1;
                     break;
                 } else {
-                    report_runtime_error("WEND without WHILE\n");
+                    report_runtime_error(ERR_WEND_WITHOUT_WHILE);
                     break;
                 }
             }
@@ -2378,7 +2431,7 @@ void run_program() {
                     break;
                 }
                 else {
-                    report_runtime_error("GOSUB nested too deep\n");
+                    report_runtime_error(ERR_OUT_OF_MEMORY);
                     break;
                 }
             }
@@ -2391,7 +2444,7 @@ void run_program() {
                     jumped = 1;
                     break;
                 } else {
-                    report_runtime_error("RETURN without GOSUB\n");
+                    report_runtime_error(ERR_RETURN_WITHOUT_GOSUB);
                     break;
                 }
             }
@@ -2421,7 +2474,7 @@ void run_program() {
                         for_ptr = f;
                     }
                 } else {
-                    report_runtime_error("NEXT without FOR\n");
+                    report_runtime_error(ERR_NEXT_WITHOUT_FOR);
                 }
                 continue;
             }
@@ -2430,9 +2483,7 @@ void run_program() {
                 Token target = get_next_token(&ptr);
                 Statement *target_stmt = find_line(target.int_val);
                 if (!target_stmt) {
-                    char err[64];
-                    snprintf(err, sizeof(err), "Undefined line number %d\n", target.int_val);
-                    report_runtime_error(err);
+                    report_runtime_error(ERR_UNDEFINED_LINE_NUMBER);
                 } else {
                     curr = target_stmt;
                     jumped = 1;
@@ -2467,7 +2518,7 @@ void run_program() {
                     resume_ptr = error_ptr;
                 }
                 if (!curr) {
-                    report_runtime_error("Can't RESUME\n");
+                    report_runtime_error(ERR_CANT_RESUME);
                 } else {
                     jumped = 1;
                 }
@@ -2486,7 +2537,7 @@ void run_program() {
         }
 
         if (!stop_running && !jumped) {
-            curr = find_next_statement(current_line_num);
+            curr = find_next_statement(current_executing_line);
         }
 
         if (runtime_error_occurred && on_error_goto_line > 0) {
