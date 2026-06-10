@@ -6,6 +6,11 @@ Generated: 2026-06-10
 
 ## 2026-06-10
 
+- Implement standard BASIC error codes and tracking variables `ERR` and `ERL`. Updated error reporting to include line numbers.
+- Implement `LOF(n)` and `LOC(n)` functions for file length and position.
+- Extend `FILES` command to support redirection to a file.
+- Update `OPEN` statement to support string expressions for file paths.
+- Add `demo/file_report.bas` to demonstrate file operations, sorting, and timing.
 - Add `CHDIR`, `MKDIR`, and `RMDIR` tests for string variables, existing paths, and non-empty directory removal. (commit ec5ea35)
 - Documentation updates. (commit 961c096)
 - Implement `ENVIRON`. (commit c07b4d1)
