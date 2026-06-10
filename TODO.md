@@ -26,7 +26,6 @@
 
 ## Graphics
 
-- Add `DRAW` command support.
 - Add graphics image block support for `GET`/`PUT`, if distinct from file `GET`/`PUT`.
 - Add screenshot or pixel-buffer tests for graphics primitives.
 

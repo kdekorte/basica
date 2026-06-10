@@ -997,7 +997,10 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 }
             }
             ptr = saved;
+            // Fall through if not ON ERROR GOTO, but it should be handled in run_program loop
+            // for regular ON index GOTO.
         }
+        
         if (t.type == TOKEN_PRINT) {
             int fnum = -1;
             const char *check_ptr = ptr;
@@ -1338,6 +1341,101 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                     basic_output(err);
                 }
             }
+        } else if (t.type == TOKEN_DRAW) {
+            char cmd[1024] = "";
+            parse_string_expression(&ptr, cmd, sizeof(cmd));
+            const char *c = cmd;
+            int x, y;
+            get_graphics_cursor(&x, &y);
+            int color = 7; 
+            int scale = 4;
+            int angle = 0; // 0, 1, 2, 3 -> 0, 90, 180, 270 degrees
+            int ta = 0; // Turn Angle in degrees
+
+            while (*c) {
+                while (*c && (isspace((unsigned char)*c) || *c == ';' || *c == ',')) c++;
+                if (!*c) break;
+
+                int no_draw = 0;
+                int return_pos = 0;
+                if (toupper((unsigned char)*c) == 'B') { no_draw = 1; c++; }
+                if (toupper((unsigned char)*c) == 'N') { return_pos = 1; c++; }
+                
+                char op = toupper((unsigned char)*c++);
+                int orig_x = x, orig_y = y;
+
+                while (*c && (isspace((unsigned char)*c) || *c == ';' || *c == ',')) c++;
+
+                int val = 0;
+                if (op != 'M' && (isdigit((unsigned char)*c) || *c == '+' || *c == '-')) {
+                    char *end;
+                    val = strtol(c, &end, 10);
+                    c = end;
+                }
+
+                int dx = 0, dy = 0;
+                switch (op) {
+                    case 'U': dy = -val; break;
+                    case 'D': dy = val; break;
+                    case 'L': dx = -val; break;
+                    case 'R': dx = val; break;
+                    case 'E': dx = val; dy = -val; break;
+                    case 'F': dx = val; dy = val; break;
+                    case 'G': dx = -val; dy = val; break;
+                    case 'H': dx = -val; dy = -val; break;
+                    case 'M': {
+                        int rel = 0;
+                        if (*c == '+' || *c == '-') rel = 1;
+                        int mx = strtol(c, (char**)&c, 10);
+                        if (*c == ',') c++;
+                        int my = strtol(c, (char**)&c, 10);
+                        if (rel) {
+                            dx = mx;
+                            dy = my;
+                        } else {
+                            x = mx;
+                            y = my;
+                            if (!no_draw) draw_line(orig_x, orig_y, x, y, color, 0);
+                            if (return_pos) { x = orig_x; y = orig_y; }
+                            set_graphics_cursor(x, y);
+                            continue;
+                        }
+                        break;
+                    }
+                    case 'A': angle = val % 4; break;
+                    case 'T': if (toupper((unsigned char)*c) == 'A') { c++; ta = strtol(c, (char**)&c, 10); } break;
+                    case 'S': scale = val; break;
+                    case 'C': color = val; break;
+                    case 'P': {
+                        int p_color = val;
+                        int b_color = color;
+                        if (*c == ',') { c++; b_color = strtol(c, (char**)&c, 10); }
+                        draw_paint(x, y, p_color, b_color);
+                        continue;
+                    }
+                }
+
+                if (dx != 0 || dy != 0) {
+                    dx = dx * scale / 4;
+                    dy = dy * scale / 4;
+                    
+                    if (angle == 1) { int t = dx; dx = -dy; dy = t; }
+                    else if (angle == 2) { dx = -dx; dy = -dy; }
+                    else if (angle == 3) { int t = dx; dx = dy; dy = -t; }
+
+                    if (ta != 0) {
+                        double rad = ta * M_PI / 180.0;
+                        int nx = (int)(dx * cos(rad) - dy * sin(rad));
+                        int ny = (int)(dx * sin(rad) + dy * cos(rad));
+                        dx = nx; dy = ny;
+                    }
+
+                    x += dx; y += dy;
+                    if (!no_draw) draw_line(orig_x, orig_y, x, y, color, 0);
+                    if (return_pos) { x = orig_x; y = orig_y; }
+                    set_graphics_cursor(x, y);
+                }
+            }
         } else if (t.type == TOKEN_NAME) {
             char old_name[256] = "";
             char new_name[256] = "";
@@ -1610,120 +1708,178 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 }
             }
         } else if (t.type == TOKEN_PSET) {
-            int x = (int)evaluate_expression(&ptr);
-            
-            // Optional separator or parenthesis
-            const char *temp_ptr = ptr;
-            Token sep = get_next_token(&temp_ptr);
-            if (sep.type == TOKEN_COMMA || sep.type == TOKEN_LPAREN) ptr = temp_ptr;
-
-            int y = (int)evaluate_expression(&ptr);
-
-            // Optional separator or parenthesis
-            temp_ptr = ptr;
-            sep = get_next_token(&temp_ptr);
-            if (sep.type == TOKEN_COMMA || sep.type == TOKEN_RPAREN) ptr = temp_ptr;
-
-            int col = (int)evaluate_expression(&ptr);
+            int x, y;
+            const char *saved = ptr;
+            if (get_next_token(&ptr).type == TOKEN_LPAREN) {
+                x = (int)evaluate_expression(&ptr);
+                if (get_next_token(&ptr).type == TOKEN_COMMA) {
+                    y = (int)evaluate_expression(&ptr);
+                } else {
+                    report_runtime_error("Syntax error\n");
+                    return;
+                }
+                if (get_next_token(&ptr).type != TOKEN_RPAREN) {
+                    report_runtime_error("Syntax error\n");
+                    return;
+                }
+            } else {
+                ptr = saved;
+                x = (int)evaluate_expression(&ptr);
+                if (get_next_token(&ptr).type == TOKEN_COMMA) {
+                    y = (int)evaluate_expression(&ptr);
+                } else {
+                    report_runtime_error("Syntax error\n");
+                    return;
+                }
+            }
+            int col = 7;
+            saved = ptr;
+            if (get_next_token(&ptr).type == TOKEN_COMMA) {
+                col = (int)evaluate_expression(&ptr);
+            } else {
+                ptr = saved;
+            }
             set_pixel(x, y, col);
             if (graphics_is_active()) graphics_present_now();
         } else if (t.type == TOKEN_LINE) {
-            get_next_token(&ptr); // (
-            int x1 = (int)evaluate_expression(&ptr);
-            get_next_token(&ptr); // ,
-            int y1 = (int)evaluate_expression(&ptr);
-            get_next_token(&ptr); // )
-            get_next_token(&ptr); // -
-            get_next_token(&ptr); // (
-            int x2 = (int)evaluate_expression(&ptr);
-            get_next_token(&ptr); // ,
-            int y2 = (int)evaluate_expression(&ptr);
-            get_next_token(&ptr); // )
+            int x1, y1, x2, y2;
+            int has_first = 0;
             const char *saved = ptr;
-            Token sep = get_next_token(&ptr);
-            int col = 3;
-            if (sep.type == TOKEN_COMMA) col = (int)evaluate_expression(&ptr);
-            else ptr = saved;
-
-            int fill = 0;
-            saved = ptr;
-            sep = get_next_token(&ptr);
-            if (sep.type == TOKEN_COMMA) {
-                Token flag = get_next_token(&ptr);
-                if (strcasecmp(flag.text, "BF") == 0) fill = 2;
-                else if (strcasecmp(flag.text, "B") == 0) fill = 1;
+            if (get_next_token(&ptr).type == TOKEN_LPAREN) {
+                x1 = (int)evaluate_expression(&ptr);
+                if (get_next_token(&ptr).type == TOKEN_COMMA) y1 = (int)evaluate_expression(&ptr);
+                get_next_token(&ptr); // RPAREN
+                has_first = 1;
             } else {
                 ptr = saved;
+                // Check if it starts with - (relative line)
+                if (get_next_token(&ptr).type == TOKEN_MINUS) {
+                    int dummy_x, dummy_y;
+                    get_graphics_cursor(&dummy_x, &dummy_y);
+                    x1 = dummy_x; y1 = dummy_y;
+                    has_first = 1;
+                } else {
+                    ptr = saved;
+                }
             }
-
-            draw_line(x1, y1, x2, y2, col, fill);
-        } else if (t.type == TOKEN_CIRCLE) { // CIRCLE (cx,cy),radius[,color[,start,end[,aspect]]]
-            get_next_token(&ptr); // (
-            int cx = (int)evaluate_expression(&ptr);
-            get_next_token(&ptr); // ,
-            int cy = (int)evaluate_expression(&ptr);
-            get_next_token(&ptr); // )
-            get_next_token(&ptr); // ,
-            int radius = (int)evaluate_expression(&ptr);
-
-            // Optional color
-            const char *saved = ptr; // Save ptr to check for optional color
-            Token sep = get_next_token(&ptr);
-            int col = 3;
-            if (sep.type == TOKEN_COMMA) col = (int)evaluate_expression(&ptr);
-            else ptr = saved;
-
-            // Optional fill flag (BF for filled, B for outline)
-            int fill = 0;
-            saved = ptr; // Save ptr to check for optional fill flag
-            sep = get_next_token(&ptr); // Check for comma before BF/B
-            if (sep.type == TOKEN_COMMA) {
-                Token flag = get_next_token(&ptr);
-                if (strcasecmp(flag.text, "BF") == 0) fill = 2;
-                else if (strcasecmp(flag.text, "B") == 0) fill = 1;
-            } else {
-                ptr = saved;
-            }
-            draw_circle(cx, cy, radius, col, fill);
-        } else if (t.type == TOKEN_PAINT) { // PAINT (x,y)[,color[,border_color]]
-            get_next_token(&ptr); // (
-            int x = (int)evaluate_expression(&ptr);
-            get_next_token(&ptr); // ,
-            int y = (int)evaluate_expression(&ptr);
-            get_next_token(&ptr); // )
             
-            // Optional color
-            const char *saved = ptr;
-            Token sep = get_next_token(&ptr);
-            int col = 3;
-            if (sep.type == TOKEN_COMMA) col = (int)evaluate_expression(&ptr);
-            else ptr = saved;
+            if (has_first) {
+                if (get_next_token(&ptr).type != TOKEN_MINUS) {
+                    // If it was (x1,y1) but no - next, maybe it's just (x1,y1)-(x2,y2) 
+                    // and evaluate_expression consumed more? No, evaluate_expression is clean.
+                }
+            } else {
+                // Should be (x1,y1)-(x2,y2) or x1,y1-x2,y2
+                x1 = (int)evaluate_expression(&ptr);
+                get_next_token(&ptr); // comma
+                y1 = (int)evaluate_expression(&ptr);
+                get_next_token(&ptr); // minus
+            }
 
-            // Optional border color
             saved = ptr;
-            sep = get_next_token(&ptr);
-            int border = col;
-            if (sep.type == TOKEN_COMMA) border = (int)evaluate_expression(&ptr);
-            else ptr = saved;
+            if (get_next_token(&ptr).type == TOKEN_LPAREN) {
+                x2 = (int)evaluate_expression(&ptr);
+                get_next_token(&ptr); // comma
+                y2 = (int)evaluate_expression(&ptr);
+                get_next_token(&ptr); // RPAREN
+            } else {
+                ptr = saved;
+                x2 = (int)evaluate_expression(&ptr);
+                get_next_token(&ptr); // comma
+                y2 = (int)evaluate_expression(&ptr);
+            }
 
+            int col = 3;
+            saved = ptr;
+            if (get_next_token(&ptr).type == TOKEN_COMMA) {
+                col = (int)evaluate_expression(&ptr);
+            } else {
+                ptr = saved;
+            }
+
+            int fill = 0;
+            saved = ptr;
+            if (get_next_token(&ptr).type == TOKEN_COMMA) {
+                Token flag = get_next_token(&ptr);
+                if (strcasecmp(flag.text, "BF") == 0) fill = 2;
+                else if (strcasecmp(flag.text, "B") == 0) fill = 1;
+                else ptr = saved;
+            } else {
+                ptr = saved;
+            }
+            draw_line(x1, y1, x2, y2, col, fill);
+        } else if (t.type == TOKEN_CIRCLE) { // CIRCLE (cx,cy),radius[,color]
+            int cx, cy, radius;
+            const char *saved = ptr;
+            if (get_next_token(&ptr).type == TOKEN_LPAREN) {
+                cx = (int)evaluate_expression(&ptr);
+                get_next_token(&ptr); // comma
+                cy = (int)evaluate_expression(&ptr);
+                get_next_token(&ptr); // RPAREN
+            } else {
+                ptr = saved;
+                cx = (int)evaluate_expression(&ptr);
+                get_next_token(&ptr); // comma
+                cy = (int)evaluate_expression(&ptr);
+            }
+            get_next_token(&ptr); // comma
+            radius = (int)evaluate_expression(&ptr);
+
+            int col = 3;
+            saved = ptr;
+            if (get_next_token(&ptr).type == TOKEN_COMMA) {
+                col = (int)evaluate_expression(&ptr);
+            } else {
+                ptr = saved;
+            }
+            draw_circle(cx, cy, radius, col, 0);
+        } else if (t.type == TOKEN_PAINT) { // PAINT (x,y)[,color[,border]]
+            int x, y;
+            const char *saved = ptr;
+            if (get_next_token(&ptr).type == TOKEN_LPAREN) {
+                x = (int)evaluate_expression(&ptr);
+                get_next_token(&ptr); // comma
+                y = (int)evaluate_expression(&ptr);
+                get_next_token(&ptr); // RPAREN
+            } else {
+                ptr = saved;
+                x = (int)evaluate_expression(&ptr);
+                get_next_token(&ptr); // comma
+                y = (int)evaluate_expression(&ptr);
+            }
+            int col = 3;
+            saved = ptr;
+            if (get_next_token(&ptr).type == TOKEN_COMMA) {
+                col = (int)evaluate_expression(&ptr);
+            } else {
+                ptr = saved;
+            }
+            int border = col;
+            saved = ptr;
+            if (get_next_token(&ptr).type == TOKEN_COMMA) {
+                border = (int)evaluate_expression(&ptr);
+            } else {
+                ptr = saved;
+            }
             draw_paint(x, y, col, border);
         } else if (t.type == TOKEN_SCREEN) {
             int mode = (int)evaluate_expression(&ptr);
             init_graphics();
-            set_screen_mode(mode); // set_screen_mode now calls graphics_present_now internally
+            set_screen_mode(mode); 
         } else if (t.type == TOKEN_LOCATE) {
             int row = (int)evaluate_expression(&ptr);
-            get_next_token(&ptr); // comma
-            int col = (int)evaluate_expression(&ptr);
-            set_text_cursor(row, col); // set_text_cursor now calls update_graphics internally
-            print_col = col - 1;
+            if (get_next_token(&ptr).type == TOKEN_COMMA) {
+                int col = (int)evaluate_expression(&ptr);
+                set_text_cursor(row, col);
+                print_col = col - 1;
+            }
         } else if (t.type == TOKEN_CLS) {
             graphics_cls();
             if (graphics_is_active()) graphics_present_now();
             print_col = 0;
         } else if (t.type == TOKEN_SLEEP) {
             int ms = (int)evaluate_expression(&ptr);
-            graphics_sleep(ms); // graphics_sleep now calls graphics_present_now internally
+            graphics_sleep(ms);
         }
         else if (t.type == TOKEN_SEEK) {
             const char *saved = ptr;

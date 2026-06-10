@@ -16,6 +16,10 @@ static int canvas_width = 1280;
 static int canvas_height = 400;
 static int cursor_x = 0;
 static int cursor_y = 0;
+
+static int gfx_cursor_x = 0;
+static int gfx_cursor_y = 0;
+
 static TTF_Font *font = NULL;
 static char font_path[512] = "";
 static const int FONT_SIZE = 16;         // Initial DOS-style pixel font size
@@ -28,6 +32,16 @@ static int mode_res_w = 640;
 static int mode_res_h = 200;
 static int text_columns = 80;
 static int text_rows = 25;
+
+void get_graphics_cursor(int *x, int *y) {
+    if (x) *x = gfx_cursor_x;
+    if (y) *y = gfx_cursor_y;
+}
+
+void set_graphics_cursor(int x, int y) {
+    gfx_cursor_x = x;
+    gfx_cursor_y = y;
+}
 
 static void reload_font(int target_height) {
     if (font_path[0] == '\0') return;
@@ -446,6 +460,8 @@ void set_pixel(int x, int y, int color) {
     
     SDL_FRect r = { (float)(x * xs), (float)(y * ys), (float)(xs + 1.0f), (float)(ys + 1.0f) };
     SDL_RenderFillRect(renderer, &r);
+    gfx_cursor_x = x;
+    gfx_cursor_y = y;
     update_graphics();
 }
 
@@ -485,6 +501,8 @@ void draw_line(int x1, int y1, int x2, int y2, int color, int fill) {
     } else {
         SDL_RenderLine(renderer, (float)sx1, (float)sy1, (float)sx2, (float)sy2);
     }
+    gfx_cursor_x = x2;
+    gfx_cursor_y = y2;
     update_graphics();
 }
 
@@ -533,6 +551,8 @@ void draw_circle(int cx, int cy, int radius, int color, int fill) {
         }
         x++;
     }
+    gfx_cursor_x = cx;
+    gfx_cursor_y = cy;
     update_graphics();
 }
 
@@ -617,6 +637,8 @@ void draw_paint(int x, int y, int paint_color, int border_color) {
     SDL_DestroySurface(surf);
     free(queue);
     
+    gfx_cursor_x = x;
+    gfx_cursor_y = y;
     graphics_present_now();
 }
 

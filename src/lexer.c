@@ -31,6 +31,7 @@ static const KeywordMap keyword_table[] = {
     {"DEF", TOKEN_DEF},
     {"DELETE", TOKEN_DELETE},
     {"DIM", TOKEN_DIM},
+    {"DRAW", TOKEN_DRAW},
     {"ELSE", TOKEN_ELSE},
     {"END", TOKEN_END},
     {"EOF", TOKEN_EOF_FUNC},

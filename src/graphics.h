@@ -17,6 +17,9 @@ void handle_events();
 void wait_for_keypress();
 void set_window_title(const char *title);
 
+void get_graphics_cursor(int *x, int *y);
+void set_graphics_cursor(int x, int y);
+
 void graphics_sleep(int ms);
 void graphics_print(const char *text);
 int get_graphics_key(void);
