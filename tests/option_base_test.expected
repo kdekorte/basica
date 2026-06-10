@@ -1,0 +1,5 @@
+A(1)=10 A(5)=50
+Testing bounds (should error):
+Error trapped correctly for lower bound
+Testing upper bounds (should error):
+Error trapped correctly for lower bound

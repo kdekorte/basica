@@ -24,6 +24,7 @@ TESTS=(
   "tests/dim_edge_cases"
   "tests/multidim_bounds"
   "tests/erase"
+  "tests/option_base_test"
 
   # File I/O
   "tests/filo_block"

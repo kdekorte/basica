@@ -28,6 +28,9 @@ static double last_rnd_value = 0.0;
 static int on_error_goto_line = 0;
 static int runtime_error_occurred = 0;
 static char last_runtime_error_msg[256] = "";
+static Statement *error_stmt = NULL;
+static const char *error_ptr = NULL;
+static const char *error_next_ptr = NULL;
 
 typedef struct {
     char name[32];
@@ -57,6 +60,9 @@ static double basica_rnd_next(void) {
     last_rnd_value = (double)rnd_seed / 2147483648.0;
     return last_rnd_value;
 }
+static int option_base = 0;
+static int option_base_set = 0;
+static int arrays_dimensioned = 0;
 
 static Statement *data_stmt = NULL;
 static const char *data_ptr = NULL;
@@ -286,19 +292,51 @@ static int while_ptr = 0;
 
 // Helper function to convert multi-dimensional indices to linear index
 static int calc_linear_index(Variable *var, int *indices, int num_indices) {
-    if (var->num_dims == 0 || var->num_dims != num_indices) return -1;
+    if (var->num_dims == 0 || var->num_dims != num_indices) {
+        report_runtime_error("Subscript out of range\n");
+        return -1;
+    }
     
-    // Convert to 0-based indices (BASIC uses 1-based)
     int linear = 0;
     int multiplier = 1;
     for (int i = var->num_dims - 1; i >= 0; i--) {
-        linear += (indices[i] - 1) * multiplier; // BASIC arrays are 1-based, convert to 0-based
-        multiplier *= var->dims[i];
+        int max_subscript = var->dims[i];
+        int val = indices[i];
+        if (val < option_base || val > max_subscript) {
+            report_runtime_error("Subscript out of range\n");
+            return -1;
+        }
+        int offset = (option_base == 0) ? val : (val - 1);
+        linear += offset * multiplier;
+        
+        int dim_size = (option_base == 0) ? (max_subscript + 1) : max_subscript;
+        multiplier *= dim_size;
     }
     return linear;
 }
 
-static double unary(const char **input);
+static void ensure_array_dimensioned(int idx, int num_dims) {
+    if (vars[idx].array || vars[idx].s_array) return; // already dimensioned
+    
+    // Auto-dimension to 10 for each dimension
+    int total_size = 1;
+    for (int i = 0; i < num_dims; i++) {
+        int dim_size = (option_base == 0) ? 11 : 10;
+        total_size *= dim_size;
+    }
+    
+    if (vars[idx].name[strlen(vars[idx].name)-1] == '$') {
+        vars[idx].s_array = calloc(total_size, sizeof(char*));
+    } else {
+        vars[idx].array = malloc(total_size * sizeof(double));
+        for (int i = 0; i < total_size; i++) vars[idx].array[i] = 0;
+    }
+    vars[idx].array_size = total_size;
+    vars[idx].num_dims = num_dims;
+    for (int i = 0; i < num_dims; i++) vars[idx].dims[i] = 10;
+    
+    arrays_dimensioned = 1;
+}
 
 static int parse_array_index(const char **input, int var_idx) {
     const char *saved = *input;
@@ -329,10 +367,10 @@ static int parse_array_index(const char **input, int var_idx) {
         return -1;
     }
 
-    if (vars[var_idx].num_dims > 0) {
-        return calc_linear_index(&vars[var_idx], indices, num_indices);
-    }
-    return indices[0];
+    // Auto-dimension if not already dimensioned
+    ensure_array_dimensioned(var_idx, num_indices);
+
+    return calc_linear_index(&vars[var_idx], indices, num_indices);
 }
 
 static void get_string_variable_value(int idx, int array_idx, char *dest, int dest_size) {
@@ -683,6 +721,9 @@ static void clear_variables(void) {
     }
     var_count = 0;
     user_function_count = 0;
+    option_base = 0;
+    option_base_set = 0;
+    arrays_dimensioned = 0;
 }
 
 void basic_output(const char *text) { // Made non-static
@@ -1480,13 +1521,16 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                         if (vars[idx].s_array[array_idx]) free(vars[idx].s_array[array_idx]);
                         vars[idx].s_array[array_idx] = NULL;
                     } else if (vars[idx].s_array) {
-                        // ERASE S$ with no index on a string array: clear all elements
+                        // ERASE S$ with no index on a string array: release all memory
                         for (int i = 0; i < vars[idx].array_size; i++) {
                             if (vars[idx].s_array[i]) {
                                 free(vars[idx].s_array[i]);
-                                vars[idx].s_array[i] = NULL;
                             }
                         }
+                        free(vars[idx].s_array);
+                        vars[idx].s_array = NULL;
+                        vars[idx].array_size = 0;
+                        vars[idx].num_dims = 0;
                     } else if (array_idx == -1) { // Scalar string variable
                         if (vars[idx].s_value) free(vars[idx].s_value);
                         vars[idx].s_value = NULL;
@@ -1496,10 +1540,11 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                     if (array_idx >= 0 && vars[idx].array && array_idx < vars[idx].array_size) {
                         vars[idx].array[array_idx] = 0;
                     } else if (vars[idx].array) {
-                        // ERASE A with no index: clear all numeric array elements
-                        for (int i = 0; i < vars[idx].array_size; i++) { // Clear all elements
-                            vars[idx].array[i] = 0;
-                        }
+                        // ERASE A with no index: release numeric array memory
+                        free(vars[idx].array);
+                        vars[idx].array = NULL;
+                        vars[idx].array_size = 0;
+                        vars[idx].num_dims = 0;
                     } else if (array_idx == -1) { // Scalar numeric variable
                         vars[idx].value = 0;
                     }
@@ -1600,35 +1645,7 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
         } else if (t.type == TOKEN_REVERSE) {
             Token var = get_next_token(&ptr);
             int idx = find_variable(var.text);
-            int array_idx = -1;
-            const char *check_ptr = ptr;
-            if (get_next_token(&check_ptr).type == TOKEN_LPAREN) {
-                ptr = check_ptr;
-                
-                // Parse indices (can be multiple, separated by commas)
-                int indices[3] = {0};
-                int num_indices = 0;
-                indices[0] = (int)evaluate_expression(&ptr);
-                num_indices = 1;
-                
-                // Check for additional indices
-                const char *saved = ptr;
-                Token sep = get_next_token(&ptr);
-                while (sep.type == TOKEN_COMMA && num_indices < 3) {
-                    indices[num_indices] = (int)evaluate_expression(&ptr);
-                    num_indices++;
-                    saved = ptr;
-                    sep = get_next_token(&ptr);
-                }
-                ptr = saved;
-                get_next_token(&ptr); // consume ')'
-                
-                if (vars[idx].num_dims > 0) {
-                    array_idx = calc_linear_index(&vars[idx], indices, num_indices);
-                } else {
-                    array_idx = indices[0];
-                }
-            }
+            int array_idx = parse_array_index(&ptr, idx);
             char *target = NULL;
             if (array_idx != -1 && vars[idx].s_array && array_idx >= 0 && array_idx < vars[idx].array_size) {
                 target = vars[idx].s_array[array_idx];
@@ -1648,6 +1665,26 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                     vars[idx].s_value = rev;
                 }
             }
+        } else if (t.type == TOKEN_OPTION) {
+            Token base = get_next_token(&ptr);
+            if (base.type != TOKEN_BASE) {
+                report_runtime_error("Syntax error\n");
+            } else {
+                Token val_tok = get_next_token(&ptr);
+                if (val_tok.type != TOKEN_NUMBER) {
+                    report_runtime_error("Syntax error\n");
+                } else {
+                    int val = val_tok.int_val;
+                    if (val != 0 && val != 1) {
+                        report_runtime_error("Invalid option base value\n");
+                    } else if (option_base_set || arrays_dimensioned) {
+                        report_runtime_error("Duplicate Definition\n");
+                    } else {
+                        option_base = val;
+                        option_base_set = 1;
+                    }
+                }
+            }
         } else if (t.type == TOKEN_DIM) {
             // Process multiple DIM declarations (e.g., DIM A(2,2), B(3,3), C(2))
             while (1) {
@@ -1660,14 +1697,14 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 // Parse dimensions (can be multiple, separated by commas)
                 int dims[3] = {0};
                 int num_dims = 0;
-                dims[0] = (int)evaluate_expression(&ptr) + 1;  // +1 for 0-indexing
+                dims[0] = (int)evaluate_expression(&ptr);
                 num_dims = 1;
                 
                 // Check for additional dimensions
                 const char *saved = ptr;
                 Token sep = get_next_token(&ptr);
                 while (sep.type == TOKEN_COMMA && num_dims < 3) {
-                    dims[num_dims] = (int)evaluate_expression(&ptr) + 1;
+                    dims[num_dims] = (int)evaluate_expression(&ptr);
                     num_dims++;
                     saved = ptr;
                     sep = get_next_token(&ptr);
@@ -1678,26 +1715,39 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 
                 int idx = find_variable(var.text);
                 
-                // Calculate total size
+                // Calculate total size and check if any dim is invalid
                 int total_size = 1;
+                int dim_err = 0;
                 for (int i = 0; i < num_dims; i++) {
-                    total_size *= dims[i];
+                    int dim_size = (option_base == 0) ? (dims[i] + 1) : dims[i];
+                    if (dim_size <= 0) {
+                        report_runtime_error("Subscript out of range\n");
+                        dim_err = 1;
+                        break;
+                    }
+                    total_size *= dim_size;
                 }
+                if (dim_err) break;
                 
                 if (var.text[strlen(var.text)-1] == '$') {
                     if (vars[idx].s_array) {
-                        for(int i=0; i<vars[idx].array_size; i++) free(vars[idx].s_array[i]);
-                        free(vars[idx].s_array);
+                        report_runtime_error("Duplicate Definition\n");
+                        break;
                     }
                     vars[idx].s_array = calloc(total_size, sizeof(char*));
                 } else {
-                    if (vars[idx].array) free(vars[idx].array);
+                    if (vars[idx].array) {
+                        report_runtime_error("Duplicate Definition\n");
+                        break;
+                    }
                     vars[idx].array = malloc(total_size * sizeof(double));
                     for(int i=0; i<total_size; i++) vars[idx].array[i] = 0;
                 }
                 vars[idx].array_size = total_size;
                 vars[idx].num_dims = num_dims;
                 for(int i=0; i<num_dims; i++) vars[idx].dims[i] = dims[i];
+                
+                arrays_dimensioned = 1;
                 
                 // Check for more arrays on the same DIM statement
                 saved = ptr;
@@ -2016,6 +2066,7 @@ void interpret_line(const char *input, int is_direct) {
 }
 
 void run_program() {
+    clear_variables();
     stop_running = 0;
     runtime_error_occurred = 0;
     gosub_ptr = 0;
@@ -2025,6 +2076,10 @@ void run_program() {
     clear_data_pointer();
     Statement *curr = get_head();
     const char *resume_ptr = NULL;
+    error_stmt = NULL;
+    error_ptr = NULL;
+    error_next_ptr = NULL;
+
     char out_buf[256];
 
     while (curr && !stop_running) {
@@ -2032,11 +2087,12 @@ void run_program() {
         Statement *exec_stmt = curr;
         int current_line_num = exec_stmt->line_number;
         const char *ptr = (resume_ptr) ? resume_ptr : exec_stmt->raw_command;
+        const char *stmt_start = ptr;
         resume_ptr = NULL;
         int jumped = 0;
 
         while (*ptr && !stop_running) {
-            const char *stmt_start = ptr;
+            stmt_start = ptr;
             const char *exec_start = stmt_start;
             Token t = get_next_token(&ptr);
             if (t.type == TOKEN_COLON) continue;
@@ -2363,9 +2419,37 @@ void run_program() {
                 continue;
             }
 
+            if (t.type == TOKEN_RESUME) {
+                const char *saved = ptr;
+                Token rt = get_next_token(&ptr);
+                if (rt.type == TOKEN_NEXT) {
+                    curr = error_stmt;
+                    resume_ptr = error_next_ptr;
+                } else if (rt.type == TOKEN_NUMBER) {
+                    curr = find_line(rt.int_val);
+                    resume_ptr = NULL;
+                } else {
+                    ptr = saved;
+                    curr = error_stmt;
+                    resume_ptr = error_ptr;
+                }
+                if (!curr) {
+                    report_runtime_error("Can't RESUME\n");
+                } else {
+                    jumped = 1;
+                }
+                break;
+            }
+
             // Pass the pointer back to the start of this command (or the exec_start for same-line FOR body)
             ptr = exec_start;
             interpret_line_at_ptr(&ptr, 0);
+        }
+
+        if (runtime_error_occurred) {
+            error_stmt = exec_stmt;
+            error_ptr = stmt_start;
+            error_next_ptr = ptr;
         }
 
         if (!stop_running && !jumped) {

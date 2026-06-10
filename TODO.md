@@ -15,7 +15,6 @@
 ## Interpreter correctness
 
 - Add support for `CONT`, `STOP`, and better direct-mode behavior.
-- Audit array indexing: BASICA defaults, `OPTION BASE`, and bounds behavior.
 - Add broader tests for `PEEK`, `POKE`, and `VARPTR` edge cases.
 
 ## File and DOS commands
