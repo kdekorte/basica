@@ -7,7 +7,7 @@ A small IBM BASICA-compatible interpreter clone written in C.
 Requirements:
 - `gcc`
 - `pkg-config`
-- `SDL3`, `SDL3_ttf`, and `SDL3_mixer` development headers
+- `SDL3`, `SDL3_ttf`, `SDL3_mixer`, and `SDL3_image` development headers
 
 Build with:
 

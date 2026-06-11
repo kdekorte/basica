@@ -8,6 +8,7 @@ void set_screen_mode(int mode);
 void set_pixel(int x, int y, int color);
 void draw_line(int x1, int y1, int x2, int y2, int color, int fill);
 void draw_circle(int cx, int cy, int radius, int color, int fill);
+int graphics_save_screenshot(const char *filename);
 int get_pixel(int x, int y);
 void draw_paint(int x, int y, int color, int border_color);
 void set_text_cursor(int row, int col);

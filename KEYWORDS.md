@@ -60,6 +60,7 @@
 - `PSET (x,y)[, color]`: Sets a pixel.
 - `PUT (x,y), array[, action]`: Places a captured area on the screen. Actions: `PSET`, `PRESET`, `AND`, `OR`, `XOR` (default).
 - `SCREEN mode`: Sets graphics mode.
+- `SCREENSHOT "filename.png"`: Saves the current graphics window content to a file. Supports `.png` and `.jpg`/`.jpeg` extensions.
 - `SLEEP ms`: Pauses for a specified number of milliseconds.
 - `SOUND freq, duration`: Produces a tone.
 

@@ -2295,6 +2295,19 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 ptr = saved;
                 report_runtime_error(ERR_SYNTAX_ERROR);
             }
+        } else if (t.type == TOKEN_SCREENSHOT) {
+            char filename[256] = "";
+            if (!parse_string_expression(&ptr, filename, sizeof(filename))) {
+                report_runtime_error(ERR_SYNTAX_ERROR);
+                return;
+            }
+            if (!graphics_is_active()) {
+                report_runtime_error(ERR_ILLEGAL_FUNCTION_CALL);
+            } else {
+                if (!graphics_save_screenshot(filename)) {
+                    report_runtime_error(ERR_ILLEGAL_FUNCTION_CALL);
+                }
+            }
         } else {
             // Token was not a recognized command or valid assignment
             report_runtime_error(ERR_SYNTAX_ERROR);

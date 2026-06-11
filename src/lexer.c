@@ -101,6 +101,7 @@ static const KeywordMap keyword_table[] = {
     {"RTRIM$", TOKEN_RTRIM},
     {"RUN", TOKEN_RUN},
     {"SCREEN", TOKEN_SCREEN},
+    {"SCREENSHOT", TOKEN_SCREENSHOT},
     {"SEEK", TOKEN_SEEK},
     {"SGN", TOKEN_SGN},
     {"SHELL", TOKEN_SHELL},

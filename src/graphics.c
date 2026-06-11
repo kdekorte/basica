@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <SDL3_image/SDL_image.h>
 #include <SDL3_ttf/SDL_ttf.h>
 #include "graphics.h"
 #include "interpreter.h"
@@ -491,6 +492,30 @@ int get_pixel(int x, int y) {
     }
 
     return 0;
+}
+
+int graphics_save_screenshot(const char *filename) {
+    if (!renderer || !canvas || !filename) return 0;
+
+    SDL_SetRenderTarget(renderer, canvas);
+    SDL_Surface *surf = SDL_RenderReadPixels(renderer, NULL);
+    if (!surf) return 0;
+
+    int result = 0;
+    const char *ext = strrchr(filename, '.');
+    
+    if (ext && strcasecmp(ext, ".png") == 0) {
+        if (IMG_SavePNG(surf, filename)) result = 1;
+    } else if (ext && (strcasecmp(ext, ".jpg") == 0 || strcasecmp(ext, ".jpeg") == 0)) {
+        if (IMG_SaveJPG(surf, filename, 90)) result = 1;
+    }
+
+    SDL_DestroySurface(surf);
+    
+    // Restore render target to canvas (common practice after read/write ops)
+    SDL_SetRenderTarget(renderer, canvas);
+
+    return result;
 }
 
 void draw_line(int x1, int y1, int x2, int y2, int color, int fill) {
