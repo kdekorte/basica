@@ -299,6 +299,7 @@ int init_graphics() {
     // Search for Modern DOS fonts in common directories and use the first one found.
     const char *font_candidates[] = {
         "./fonts/ModernDOS8x16.ttf",
+        "/usr/local/share/basica/fonts/ModernDOS8x16.ttf",
         "./ModernDOS8x16.ttf",
         "./ModernDOS9x18.ttf",
         "./ModernDOS10x20.ttf",

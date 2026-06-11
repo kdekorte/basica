@@ -3,6 +3,7 @@
 #include <string.h>
 #include <signal.h>
 #include <time.h>
+#include "common.h"
 #include "interpreter.h"
 #include "graphics.h"
 #include "program.h"
@@ -14,6 +15,7 @@ static void print_usage(const char *prog) {
     printf("Options:\n");
     printf("  -w, --window     enable graphics window\n");
     printf("  -q, --quiet      suppress startup header and REPL prompts\n");
+    printf("  -v, --version    show version information\n");
     printf("  -h, --help       show this help message\n");
 }
 
@@ -25,7 +27,8 @@ void handle_sigint(int sig) {
 void repl() {
     char buffer[256];
     int active = graphics_is_active();
-    const char *header = "IBM BASICA Clone (DOS 2.1)\nREADY.\n";
+    char header[128];
+    snprintf(header, sizeof(header), "IBM BASICA Clone (DOS 2.1) v%s\nREADY.\n", BASICA_VERSION);
     if (!quiet_mode) {
         if (active) graphics_print(header);
         else printf("%s", header);
@@ -56,8 +59,14 @@ void run_file(const char *filename) {
         return;
     }
     char buffer[256];
+    int first_line = 1;
     while (fgets(buffer, sizeof(buffer), f)) {
         buffer[strcspn(buffer, "\n")] = 0;
+        // Skip shebang line so .bas files can be marked executable
+        if (first_line) {
+            first_line = 0;
+            if (buffer[0] == '#' && buffer[1] == '!') continue;
+        }
         interpret_line(buffer, 1);
     }
     fclose(f);
@@ -84,6 +93,9 @@ int main(int argc, char **argv) {
             use_window = 1;
         } else if (strcmp(argv[i], "-q") == 0 || strcmp(argv[i], "--quiet") == 0) {
             quiet_mode = 1;
+        } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--version") == 0) {
+            printf("BASICA %s\n", BASICA_VERSION);
+            return 0;
         } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             print_usage(argv[0]);
             return 0;

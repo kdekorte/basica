@@ -2,6 +2,7 @@
 
 ## Short-term improvements
 
+- Pass command line arguments using the QBASIC COMMAND$ method Also implement ARGV$(index) and ARGC
 - Expand `PLAY` MML coverage beyond the initial `T`, `O`, `L`, notes, rests, dotted notes, and octave changes.
 
 ## Audio
