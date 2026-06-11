@@ -20,6 +20,10 @@ volatile sig_atomic_t stop_running = 0;
 static Variable vars[1024]; 
 static int var_count = 0;
 static int print_col = 0;
+static int internal_argc = 0;
+static char **internal_argv = NULL;
+static char internal_command_line[1024] = "";
+
 static unsigned char basica_memory[65536];
 
 static FILE *file_handles[16] = {NULL};
@@ -43,6 +47,16 @@ typedef struct {
 
 static UserFunction user_functions[64];
 static int user_function_count = 0;
+
+void set_args(int argc, char **argv) {
+    internal_argc = argc;
+    internal_argv = argv;
+    internal_command_line[0] = '\0';
+    for (int i = 1; i < argc; i++) {
+        if (i > 1) strncat(internal_command_line, " ", sizeof(internal_command_line) - 1);
+        strncat(internal_command_line, argv[i], sizeof(internal_command_line) - 1);
+    }
+}
 
 static const char* get_error_message(RuntimeError code) {
     switch (code) {
@@ -520,6 +534,17 @@ static int parse_string_expression(const char **input, char *out, int out_size) 
             get_next_token(input); // )
             if (n < 0) n = 0; if (n > 255) n = 255;
             memset(term, c, n); term[n] = '\0';
+        } else if (t.type == TOKEN_COMMANDS) {
+            strncpy(term, internal_command_line, sizeof(term) - 1);
+            term[sizeof(term) - 1] = '\0';
+        } else if (t.type == TOKEN_ARGVS) {
+            get_next_token(input); // (
+            int idx = (int)evaluate_expression(input);
+            get_next_token(input); // )
+            if (idx >= 0 && idx < internal_argc && internal_argv) {
+                strncpy(term, internal_argv[idx], sizeof(term) - 1);
+                term[sizeof(term) - 1] = '\0';
+            }
         } else if (t.type == TOKEN_GETS) {
             get_next_token(input); // (
             int fnum = -1;
@@ -824,6 +849,7 @@ double evaluate_expression(const char **input);
 static double primary(const char **input) {
     Token t = get_next_token(input);
     if (t.type == TOKEN_NUMBER) return t.double_val;
+    if (t.type == TOKEN_ARGC) return (double)internal_argc;
     if (t.type == TOKEN_IDENTIFIER) {
         if (strcasecmp(t.text, "ERR") == 0) return (double)last_runtime_error_code;
         if (strcasecmp(t.text, "ERL") == 0) return (double)last_runtime_error_line;
@@ -1052,7 +1078,8 @@ static int is_string_token(Token t) {
             t.type == TOKEN_STR || t.type == TOKEN_HEX || t.type == TOKEN_OCT ||
             t.type == TOKEN_STRING_FUNC || t.type == TOKEN_INKEY || t.type == TOKEN_GETS || t.type == TOKEN_ENVIRON ||
             t.type == TOKEN_TIME || t.type == TOKEN_DATE || t.type == TOKEN_TAB ||
-            t.type == TOKEN_SPACE || t.type == TOKEN_SPC);
+            t.type == TOKEN_SPACE || t.type == TOKEN_SPC ||
+            t.type == TOKEN_ARGVS || t.type == TOKEN_COMMANDS);
 }
 
 double evaluate_expression(const char **input) {
@@ -1202,7 +1229,10 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                     ptr = item_saved;
                     double val = evaluate_expression(&ptr);
                     if (using_mode) apply_basica_using(using_fmt, val, val_buf, sizeof(val_buf));
-                    else snprintf(val_buf, sizeof(val_buf), "%g", val);
+                    else {
+                        if (val >= 0) snprintf(val_buf, sizeof(val_buf), " %g ", val);
+                        else snprintf(val_buf, sizeof(val_buf), "%g ", val);
+                    }
                     last_was_numeric = 1;
                 }
                 if (fnum != -1 && file_handles[fnum]) {

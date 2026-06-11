@@ -10,10 +10,26 @@ echo "Running demo/test_identifiers.bas"
 OUT=$(./basica demo/test_identifiers.bas 2>&1)
 printf "%s\n" "$OUT"
 
-if echo "$OUT" | grep -q "^5$"; then
+if echo "$OUT" | grep -q " 5 "; then
   echo "Smoke test PASS: found A_B output 5"
 else
   echo "Smoke test FAIL: expected output line '5' not found"
+  exit 2
+fi
+
+echo "Running tests/args_test.bas with arguments"
+OUT=$(./basica tests/args_test.bas "hello" "world space" 2>&1)
+EXP="ARGC: 3 
+0: tests/args_test.bas
+1: hello
+2: world space
+CMD: hello world space"
+
+if [ "$OUT" = "$EXP" ]; then
+  echo "Argument test PASS"
+else
+  echo "Argument test FAIL"
+  printf "Expected:\n%s\nActual:\n%s\n" "$EXP" "$OUT"
   exit 2
 fi
 

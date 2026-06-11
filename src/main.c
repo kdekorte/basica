@@ -101,6 +101,9 @@ int main(int argc, char **argv) {
             return 0;
         } else if (filename == NULL) {
             filename = argv[i];
+            extern void set_args(int argc, char **argv);
+            set_args(argc - i, &argv[i]);
+            break; // Remaining arguments are passed to the script
         }
     }
 

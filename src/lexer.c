@@ -15,6 +15,8 @@ static int compare_keywords(const void *a, const void *b) {
 
 static const KeywordMap keyword_table[] = {
     {"ABS", TOKEN_ABS},
+    {"ARGC", TOKEN_ARGC},
+    {"ARGV$", TOKEN_ARGVS},
     {"AS", TOKEN_AS},
     {"ASC", TOKEN_ASC},
     {"ATN", TOKEN_ATN},
@@ -26,6 +28,7 @@ static const KeywordMap keyword_table[] = {
     {"CLOSE", TOKEN_CLOSE},
     {"CLS", TOKEN_CLS},
     {"COLOR", TOKEN_COLOR},
+    {"COMMAND$", TOKEN_COMMANDS},
     {"COS", TOKEN_COS},
     {"DATA", TOKEN_DATA},
     {"DATE$", TOKEN_DATE},
