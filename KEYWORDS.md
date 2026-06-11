@@ -51,12 +51,14 @@
 - `SYSTEM` / `QUIT`: Exits the interpreter.
 
 ## Graphics and Sound
-- `CIRCLE (x,y), radius[, color]`: Draws a circle.
+- `CIRCLE (x,y), radius[, color[, fill]]`: Draws a circle. Use `2` for solid fill.
 - `DRAW "mml"`: String-driven graphics command.
+- `GET (x1,y1)-(x2,y2), array`: Captures a screen area into a numeric array.
 - `LINE [(x1,y1)]-(x2,y2)[, [color][, [B|BF]]]`: Draws lines or boxes.
 - `PAINT (x,y)[, color[, border]]`: Area fill.
 - `PLAY "mml"`: Plays Music Macro Language.
 - `PSET (x,y)[, color]`: Sets a pixel.
+- `PUT (x,y), array[, action]`: Places a captured area on the screen. Actions: `PSET`, `PRESET`, `AND`, `OR`, `XOR` (default).
 - `SCREEN mode`: Sets graphics mode.
 - `SLEEP ms`: Pauses for a specified number of milliseconds.
 - `SOUND freq, duration`: Produces a tone.

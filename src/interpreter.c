@@ -578,9 +578,8 @@ static int parse_string_expression(const char **input, char *out, int out_size) 
             strncpy(term, buf, sizeof(term) - 1);
             term[sizeof(term) - 1] = '\0';
         } else if (t.type == TOKEN_INKEY) {
-            get_next_token(input); // (
-            get_next_token(input); // )
             if (graphics_is_active()) {
+                update_graphics();
                 int c = get_graphics_char();
                 if (c) {
                     term[0] = (char)c;
@@ -1945,7 +1944,7 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 ptr = saved;
             }
             set_pixel(x, y, col);
-            if (graphics_is_active()) graphics_present_now();
+            update_graphics();
         } else if (t.type == TOKEN_LINE) {
             int x1, y1, x2, y2;
             int has_first = 0;
@@ -2013,6 +2012,7 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 ptr = saved;
             }
             draw_line(x1, y1, x2, y2, col, fill);
+            update_graphics();
         } else if (t.type == TOKEN_CIRCLE) { // CIRCLE (cx,cy),radius[,color]
             int cx, cy, radius;
             const char *saved = ptr;
@@ -2037,7 +2037,15 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
             } else {
                 ptr = saved;
             }
-            draw_circle(cx, cy, radius, col, 0);
+            int fill = 0;
+            saved = ptr;
+            if (get_next_token(&ptr).type == TOKEN_COMMA) {
+                fill = (int)evaluate_expression(&ptr);
+            } else {
+                ptr = saved;
+            }
+            draw_circle(cx, cy, radius, col, fill);
+            update_graphics();
         } else if (t.type == TOKEN_PAINT) { // PAINT (x,y)[,color[,border]]
             int x, y;
             const char *saved = ptr;
@@ -2067,6 +2075,7 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 ptr = saved;
             }
             draw_paint(x, y, col, border);
+            update_graphics();
         } else if (t.type == TOKEN_SCREEN) {
             int mode = (int)evaluate_expression(&ptr);
             init_graphics();
@@ -2109,9 +2118,52 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
         }
         else if (t.type == TOKEN_PUT) {
             const char *saved = ptr;
-            Token hash = get_next_token(&ptr);
-            if (hash.type != TOKEN_HASH) { ptr = saved; }
-            else {
+            Token next = get_next_token(&ptr);
+            if (next.type == TOKEN_LPAREN) {
+                // Graphics PUT (x,y), array [, action]
+                int x = (int)evaluate_expression(&ptr);
+                if (get_next_token(&ptr).type == TOKEN_COMMA) {
+                    int y = (int)evaluate_expression(&ptr);
+                    get_next_token(&ptr); // RPAREN
+                    get_next_token(&ptr); // comma
+                    Token var_tok = get_next_token(&ptr);
+                    int idx = find_variable(var_tok.text);
+                    
+                    if (idx != -1 && vars[idx].array && vars[idx].array_size >= 2) {
+                        int w = (int)vars[idx].array[0];
+                        int h = (int)vars[idx].array[1];
+                        int action = 0; // 0=XOR, 1=PSET, 2=PRESET, 3=AND, 4=OR
+                        const char *action_saved = ptr;
+                        if (get_next_token(&ptr).type == TOKEN_COMMA) {
+                            Token act_tok = get_next_token(&ptr);
+                            if (act_tok.type == TOKEN_PSET || strcasecmp(act_tok.text, "PSET") == 0) action = 1;
+                            else if (strcasecmp(act_tok.text, "PRESET") == 0) action = 2;
+                            else if (strcasecmp(act_tok.text, "AND") == 0) action = 3;
+                            else if (strcasecmp(act_tok.text, "OR") == 0) action = 4;
+                            else if (strcasecmp(act_tok.text, "XOR") == 0) action = 0;
+                        } else { ptr = action_saved; }
+
+                        int k = 2;
+                        for (int j = 0; j < h; j++) {
+                            for (int i = 0; i < w; i++) {
+                                if (k >= vars[idx].array_size) break;
+                                int src_col = (int)vars[idx].array[k++];
+                                int dst_col = get_pixel(x + i, y + j);
+                                int final_col = src_col;
+                                switch(action) {
+                                    case 0: final_col = src_col ^ dst_col; break;
+                                    case 1: final_col = src_col; break;
+                                    case 2: final_col = ~src_col & 0x0F; break;
+                                    case 3: final_col = src_col & dst_col; break;
+                                    case 4: final_col = src_col | dst_col; break;
+                                }
+                                set_pixel(x + i, y + j, final_col);
+                            }
+                        }
+                        if (graphics_is_active()) graphics_present_now();
+                    }
+                }
+            } else if (next.type == TOKEN_HASH) {
                 int fnum = (int)evaluate_expression(&ptr);
                 Token sep = get_next_token(&ptr);
                 if (sep.type != TOKEN_COMMA) { ptr = saved; }
@@ -2156,13 +2208,46 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                         }
                     }
                 }
+            } else {
+                ptr = saved;
+                report_runtime_error(ERR_SYNTAX_ERROR);
             }
         }
         else if (t.type == TOKEN_GET) {
             const char *saved = ptr;
-            Token hash = get_next_token(&ptr);
-            if (hash.type != TOKEN_HASH) { ptr = saved; }
-            else {
+            Token next = get_next_token(&ptr);
+            if (next.type == TOKEN_LPAREN) {
+                // Graphics GET (x1,y1)-(x2,y2), array
+                int x1 = (int)evaluate_expression(&ptr);
+                get_next_token(&ptr); // comma
+                int y1 = (int)evaluate_expression(&ptr);
+                get_next_token(&ptr); // RPAREN
+                get_next_token(&ptr); // minus
+                get_next_token(&ptr); // LPAREN
+                int x2 = (int)evaluate_expression(&ptr);
+                get_next_token(&ptr); // comma
+                int y2 = (int)evaluate_expression(&ptr);
+                get_next_token(&ptr); // RPAREN
+                get_next_token(&ptr); // comma
+                Token var_tok = get_next_token(&ptr);
+                int idx = find_variable(var_tok.text);
+                
+                int w = abs(x2 - x1) + 1;
+                int h = abs(y2 - y1) + 1;
+                int min_x = (x1 < x2) ? x1 : x2;
+                int min_y = (y1 < y2) ? y1 : y2;
+                int total_size = 2 + w * h;
+                if (idx != -1 && vars[idx].array && vars[idx].array_size >= total_size) {
+                    vars[idx].array[0] = (double)w;
+                    vars[idx].array[1] = (double)h;
+                    int k = 2;
+                    for (int j = 0; j < h; j++) {
+                        for (int i = 0; i < w; i++) {
+                            vars[idx].array[k++] = (double)get_pixel(min_x + i, min_y + j);
+                        }
+                    }
+                } else { report_runtime_error(ERR_SUBSCRIPT_OUT_OF_RANGE); }
+            } else if (next.type == TOKEN_HASH) {
                 int fnum = (int)evaluate_expression(&ptr);
                 Token sep = get_next_token(&ptr);
                 if (sep.type != TOKEN_COMMA) { ptr = saved; }
@@ -2206,6 +2291,9 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                         }
                     }
                 }
+            } else {
+                ptr = saved;
+                report_runtime_error(ERR_SYNTAX_ERROR);
             }
         } else {
             // Token was not a recognized command or valid assignment

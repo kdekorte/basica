@@ -459,11 +459,38 @@ void set_pixel(int x, int y, int color) {
     double xs = (double)canvas_width / mode_res_w;
     double ys = (double)canvas_height / mode_res_h;
     
-    SDL_FRect r = { (float)(x * xs), (float)(y * ys), (float)(xs + 1.0f), (float)(ys + 1.0f) };
+    SDL_FRect r = { (float)(x * xs), (float)(y * ys), (float)xs, (float)ys };
     SDL_RenderFillRect(renderer, &r);
     gfx_cursor_x = x;
     gfx_cursor_y = y;
-    update_graphics();
+}
+
+int get_pixel(int x, int y) {
+    if (!renderer || !canvas) return 0;
+    
+    // Map logical coordinates to canvas resolution
+    double xs = (double)canvas_width / mode_res_w;
+    double ys = (double)canvas_height / mode_res_h;
+    int sx = (int)(x * xs);
+    int sy = (int)(y * ys);
+
+    if (sx < 0 || sx >= canvas_width || sy < 0 || sy >= canvas_height) return 0;
+
+    SDL_SetRenderTarget(renderer, canvas);
+    SDL_Surface *surf = SDL_RenderReadPixels(renderer, &(SDL_Rect){sx, sy, 1, 1});
+    if (!surf) return 0;
+
+    Uint8 r, g, b, a;
+    SDL_ReadSurfacePixel(surf, 0, 0, &r, &g, &b, &a);
+    SDL_DestroySurface(surf);
+
+    // Find closest match in the standard 16-color palette
+    for (int i = 0; i < 16; i++) {
+        SDL_Color c = get_graphics_color(i);
+        if (c.r == r && c.g == g && c.b == b) return i;
+    }
+
+    return 0;
 }
 
 void draw_line(int x1, int y1, int x2, int y2, int color, int fill) {
@@ -753,6 +780,7 @@ void handle_events() {
         }
         if (e.type == SDL_EVENT_KEY_DOWN) {
             switch (e.key.key) {
+                case SDLK_RETURN: last_key_char = 13; break;
                 case SDLK_UP:    last_key_code = 1; break;
                 case SDLK_RIGHT: last_key_code = 2; break;
                 case SDLK_DOWN:  last_key_code = 3; break;
