@@ -26,6 +26,11 @@ static char internal_command_line[1024] = "";
 
 static unsigned char basica_memory[65536];
 
+static char default_type_map[26] = {
+    '!', '!', '!', '!', '!', '!', '!', '!', '!', '!', '!', '!', '!',
+    '!', '!', '!', '!', '!', '!', '!', '!', '!', '!', '!', '!', '!'
+};
+
 static FILE *file_handles[16] = {NULL};
 static unsigned int rnd_seed = 1;
 static double last_rnd_value = 0.0;
@@ -138,6 +143,7 @@ static Statement *data_stmt = NULL;
 static const char *data_ptr = NULL;
 static int parse_string_expression(const char **input, char *out, int out_size);
 static int find_variable(const char *name);
+static int is_string_var(const char *name);
 static int parse_array_index(const char **input, int var_idx);
 static void set_string_variable(int idx, int array_idx, const char *value);
 double evaluate_expression(const char **input);
@@ -242,7 +248,7 @@ static int get_next_data_item(char *out, int out_size) {
 static int parse_read_variable(const char **input, int *var_idx, int *array_idx, int *is_string) {
     Token var = get_next_token(input);
     if (var.type != TOKEN_IDENTIFIER) return 0;
-    *is_string = (var.text[strlen(var.text) - 1] == '$');
+    *is_string = is_string_var(var.text);
     *var_idx = find_variable(var.text);
     *array_idx = parse_array_index(input, *var_idx);
     return 1;
@@ -260,6 +266,14 @@ static int read_next_data_into_variable(const char **input) {
         set_string_variable(var_idx, array_idx, item);
     } else {
         double val = atof(item);
+
+        // Round to nearest integer if the variable has the '%' suffix
+        const char *name = vars[var_idx].name;
+        size_t len = strlen(name);
+        if (len > 0 && name[len - 1] == '%') {
+            val = (double)(short)round(val);
+        }
+
         if (array_idx >= 0 && vars[var_idx].array && array_idx >= 0 && array_idx < vars[var_idx].array_size) {
             vars[var_idx].array[array_idx] = val;
         } else {
@@ -285,6 +299,39 @@ static void randomize_seed(const char **input) {
         seed = (unsigned)evaluate_expression(input);
     }
     rnd_seed = seed;
+}
+
+static void parse_def_range(const char **ptr, char type_char) {
+    while (1) {
+        Token t = get_next_token(ptr);
+        if (t.type != TOKEN_IDENTIFIER) break;
+        
+        char start = toupper((unsigned char)t.text[0]);
+        char end = start;
+        
+        const char *saved = *ptr;
+        Token dash = get_next_token(ptr);
+        if (dash.type == TOKEN_MINUS) {
+            Token t2 = get_next_token(ptr);
+            if (t2.type == TOKEN_IDENTIFIER) {
+                end = toupper((unsigned char)t2.text[0]);
+            } else {
+                *ptr = saved;
+            }
+        } else {
+            *ptr = saved;
+        }
+        
+        for (char c = start; c <= end; c++) {
+            if (c >= 'A' && c <= 'Z') default_type_map[c - 'A'] = type_char;
+        }
+        
+        saved = *ptr;
+        if (get_next_token(ptr).type != TOKEN_COMMA) {
+            *ptr = saved;
+            break;
+        }
+    }
 }
 
 static int parse_read_list(const char **input) {
@@ -319,15 +366,45 @@ static int parse_randomize(const char **input) {
     return 1;
 }
 
+static int is_string_var(const char *name) {
+    int len = (int)strlen(name);
+    if (len == 0) return 0;
+    char last = name[len - 1];
+    if (last == '$') return 1;
+    if (last == '%' || last == '!' || last == '#') return 0;
+    int first = toupper((unsigned char)name[0]);
+    if (first >= 'A' && first <= 'Z') {
+        return (default_type_map[first - 'A'] == '$');
+    }
+    return 0;
+}
+
 static int find_variable(const char *name) {
+    char normalized[64];
+    strncpy(normalized, name, 63);
+    normalized[63] = '\0';
+    int len = (int)strlen(normalized);
+    if (len > 0) {
+        char last = normalized[len - 1];
+        if (last != '$' && last != '%' && last != '!' && last != '#') {
+            int first = toupper((unsigned char)normalized[0]);
+            if (first >= 'A' && first <= 'Z') {
+                char suffix = default_type_map[first - 'A'];
+                if (suffix != '\0' && suffix != '!') {
+                    normalized[len] = suffix;
+                    normalized[len+1] = '\0';
+                }
+            }
+        }
+    }
     for (int i = 0; i < var_count; i++) {
-        if (strcasecmp(vars[i].name, name) == 0) {
+        if (strcasecmp(vars[i].name, normalized) == 0) {
             return i;
         }
     }
     if (var_count < 1024) {
         memset(&vars[var_count], 0, sizeof(Variable));
-        strncpy(vars[var_count].name, name, 31);
+        strncpy(vars[var_count].name, normalized, 31);
         vars[var_count].name[31] = '\0';
         return var_count++;
     }
@@ -669,7 +746,7 @@ static int parse_string_expression(const char **input, char *out, int out_size) 
             else snprintf(term, sizeof(term), "%g", val);
         } else if (t.type == TOKEN_STRING) {
             strncpy(term, t.text, sizeof(term) - 1);
-        } else if (t.type == TOKEN_IDENTIFIER && t.text[strlen(t.text) - 1] == '$') {
+        } else if (t.type == TOKEN_IDENTIFIER && is_string_var(t.text)) {
             int idx = find_variable(t.text);
             int array_idx = parse_array_index(input, idx);
             char temp[256] = "";
@@ -728,6 +805,12 @@ static void assign_input_value(int idx, int array_idx, int is_string, const char
         }
     } else {
         double val = atof(value);
+        // Round to nearest integer if the variable has the '%' suffix
+        const char *name = vars[idx].name;
+        size_t len = strlen(name);
+        if (len > 0 && name[len - 1] == '%') {
+            val = (double)(short)round(val);
+        }
         if (array_idx >= 0 && vars[idx].array && array_idx < vars[idx].array_size) {
             vars[idx].array[array_idx] = val;
         } else {
@@ -776,7 +859,7 @@ static void execute_assignment(const char **input, Token var_token) {
         return;
     }
 
-    if (var_token.text[strlen(var_token.text) - 1] == '$') {
+    if (is_string_var(var_token.text)) {
         char value[256] = "";
         const char *expr_saved = *input;
         Token tok = get_next_token(input);
@@ -790,6 +873,12 @@ static void execute_assignment(const char **input, Token var_token) {
         set_string_variable(idx, array_idx, value);
     } else {
         double val = evaluate_expression(input);
+        // Round to nearest integer if the variable has the '%' suffix
+        const char *name = vars[idx].name;
+        size_t len = strlen(name);
+        if (len > 0 && name[len - 1] == '%') {
+            val = (double)(short)round(val);
+        }
         if (array_idx >= 0 && vars[idx].array && array_idx >= 0 && array_idx < vars[idx].array_size) {
             vars[idx].array[array_idx] = val;
         } else {
@@ -825,6 +914,7 @@ static void clear_variables(void) {
     option_base = 0;
     option_base_set = 0;
     arrays_dimensioned = 0;
+    for (int i = 0; i < 26; i++) default_type_map[i] = '!';
 }
 
 void basic_output(const char *text) { // Made non-static
@@ -1070,6 +1160,7 @@ static double arithmetic_expression(const char **input) {
 
 static int is_string_token(Token t) {
     if (t.type == TOKEN_STRING) return 1;
+    if (t.type == TOKEN_IDENTIFIER && is_string_var(t.text)) return 1;
     if (t.text[0] != '\0' && t.text[strlen(t.text)-1] == '$') return 1;
     return (t.type == TOKEN_CHR || t.type == TOKEN_LEFT || t.type == TOKEN_RIGHT ||
             t.type == TOKEN_MID || t.type == TOKEN_UCASE || t.type == TOKEN_LCASE ||
@@ -1381,6 +1472,14 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                     ptr += len;
                 }
             }
+        } else if (t.type == TOKEN_DEFINT) {
+            parse_def_range(&ptr, '%');
+        } else if (t.type == TOKEN_DEFSTR) {
+            parse_def_range(&ptr, '$');
+        } else if (t.type == TOKEN_DEFSNG) {
+            parse_def_range(&ptr, '!');
+        } else if (t.type == TOKEN_DEFDBL) {
+            parse_def_range(&ptr, '#');
         } else if (t.type == TOKEN_FILES) {
             char pattern[256] = "*.bas";
             char redirect_file[256] = "";

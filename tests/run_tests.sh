@@ -107,6 +107,7 @@ TESTS=(
   "tests/bitwise"
   "tests/bitwise_control"
   "tests/nested_paren"
+  "tests/def_types"
 )
 
 for t in "${TESTS[@]}"; do

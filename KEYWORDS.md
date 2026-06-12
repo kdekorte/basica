@@ -15,6 +15,10 @@
 ## Variables and Data
 - `DATA constant1[, constant2...]`: Internal data storage.
 - `DEF FNname(param) = expression`: User-defined function.
+- `DEFINT letter_range`: Defines variables starting with these letters as integers.
+- `DEFSTR letter_range`: Defines variables starting with these letters as strings.
+- `DEFSNG letter_range`: Defines variables starting with these letters as single-precision.
+- `DEFDBL letter_range`: Defines variables starting with these letters as double-precision.
 - `DIM var(dim1[, dim2, dim3])`: Array dimensioning (up to 3D).
 - `ERASE var`: Reinitializes variables or arrays.
 - `LET var = expression`: Assignment (keyword is optional).
