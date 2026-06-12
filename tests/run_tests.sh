@@ -104,6 +104,9 @@ TESTS=(
   "tests/lof_loc_test"
   "tests/files_redirect_test"
   "tests/shebang_test"
+  "tests/bitwise"
+  "tests/bitwise_control"
+  "tests/nested_paren"
 )
 
 for t in "${TESTS[@]}"; do

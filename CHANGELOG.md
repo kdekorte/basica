@@ -6,6 +6,7 @@ Generated: 2026-06-10
 
 ## 2026-06-10
 
+- Implement bitwise operations for `AND`, `OR`, and `XOR` when used with numeric expressions (converts to 16-bit integers).
 - Implement standard BASIC error codes and tracking variables `ERR` and `ERL`. Updated error reporting to include line numbers.
 - Implement `LOF(n)` and `LOC(n)` functions for file length and position.
 - Extend `FILES` command to support redirection to a file.

@@ -1081,6 +1081,62 @@ static int is_string_token(Token t) {
             t.type == TOKEN_ARGVS || t.type == TOKEN_COMMANDS);
 }
 
+static double relational_expression(const char **input) {
+    double val = arithmetic_expression(input);
+    while (1) {
+        const char *saved = *input;
+        Token t = get_next_token(input);
+        if (t.type == TOKEN_EQUALS) val = (val == arithmetic_expression(input)) ? -1.0 : 0.0;
+        else if (t.type == TOKEN_LESS) {
+            const char *s2 = *input;
+            Token t2 = get_next_token(input);
+            if (t2.type == TOKEN_GREATER) val = (val != arithmetic_expression(input)) ? -1.0 : 0.0;
+            else if (t2.type == TOKEN_EQUALS) val = (val <= arithmetic_expression(input)) ? -1.0 : 0.0;
+            else { *input = s2; val = (val < arithmetic_expression(input)) ? -1.0 : 0.0; }
+        }
+        else if (t.type == TOKEN_GREATER) {
+            const char *s2 = *input;
+            Token t2 = get_next_token(input);
+            if (t2.type == TOKEN_EQUALS) val = (val >= arithmetic_expression(input)) ? -1.0 : 0.0;
+            else { *input = s2; val = (val > arithmetic_expression(input)) ? -1.0 : 0.0; }
+        }
+        else { *input = saved; break; }
+    }
+    return val;
+}
+
+static double logical_not_expression(const char **input) {
+    const char *saved = *input;
+    Token t = get_next_token(input);
+    if (t.type == TOKEN_NOT) {
+        return (double)(~(short)logical_not_expression(input));
+    }
+    *input = saved;
+    return relational_expression(input);
+}
+
+static double bitwise_and_expression(const char **input) {
+    double val = logical_not_expression(input);
+    while (1) {
+        const char *saved = *input;
+        Token t = get_next_token(input);
+        if (t.type == TOKEN_AND) val = (double)((short)val & (short)logical_not_expression(input));
+        else { *input = saved; break; }
+    }
+    return val;
+}
+
+static double bitwise_or_expression(const char **input) {
+    double val = bitwise_and_expression(input);
+    while (1) {
+        const char *saved = *input;
+        Token t = get_next_token(input);
+        if (t.type == TOKEN_OR) val = (double)((short)val | (short)bitwise_and_expression(input));
+        else { *input = saved; break; }
+    }
+    return val;
+}
+
 double evaluate_expression(const char **input) {
     const char *peek_ptr = *input;
     Token peek_tok = get_next_token(&peek_ptr);
@@ -1099,39 +1155,26 @@ double evaluate_expression(const char **input) {
 
             parse_string_expression(input, s2, sizeof(s2));
             int res = strcmp(s1, s2);
-            if (op1 == TOKEN_EQUALS) return res == 0;
+            if (op1 == TOKEN_EQUALS) return res == 0 ? -1.0 : 0.0;
             if (op1 == TOKEN_LESS) {
-                if (op2 == TOKEN_GREATER) return res != 0;
-                if (op2 == TOKEN_EQUALS) return res <= 0;
-                return res < 0;
+                if (op2 == TOKEN_GREATER) return res != 0 ? -1.0 : 0.0;
+                if (op2 == TOKEN_EQUALS) return res <= 0 ? -1.0 : 0.0;
+                return res < 0 ? -1.0 : 0.0;
             }
             if (op1 == TOKEN_GREATER) {
-                if (op2 == TOKEN_EQUALS) return res >= 0;
-                return res > 0;
+                if (op2 == TOKEN_EQUALS) return res >= 0 ? -1.0 : 0.0;
+                return res > 0 ? -1.0 : 0.0;
             }
         }
         *input = op_saved;
         return 0;
     }
 
-    double val = arithmetic_expression(input);
+    double val = bitwise_or_expression(input);
     while (1) {
         const char *saved = *input;
         Token t = get_next_token(input);
-        if (t.type == TOKEN_EQUALS) val = (val == arithmetic_expression(input));
-        else if (t.type == TOKEN_LESS) {
-            const char *s2 = *input;
-            Token t2 = get_next_token(input);
-            if (t2.type == TOKEN_GREATER) val = (val != arithmetic_expression(input));
-            else if (t2.type == TOKEN_EQUALS) val = (val <= arithmetic_expression(input));
-            else { *input = s2; val = (val < arithmetic_expression(input)); }
-        }
-        else if (t.type == TOKEN_GREATER) {
-            const char *s2 = *input;
-            Token t2 = get_next_token(input);
-            if (t2.type == TOKEN_EQUALS) val = (val >= arithmetic_expression(input));
-            else { *input = s2; val = (val > arithmetic_expression(input)); }
-        }
+        if (t.type == TOKEN_XOR) val = (double)((short)val ^ (short)bitwise_or_expression(input));
         else { *input = saved; break; }
     }
     return val;

@@ -2,6 +2,7 @@
 
 ## Short-term improvements
 
+- Add `TRON` and `TROFF` for program tracing and debugging.
 - Expand `PLAY` MML coverage beyond the initial `T`, `O`, `L`, notes, rests, dotted notes, and octave changes.
 
 ## Audio
@@ -13,11 +14,16 @@
 
 ## Interpreter correctness
 
+- Support type suffixes for variables: `%` (integer), `!` (single precision), and `#` (double precision).
+- Implement `DEFINT`, `DEFSTR`, `DEFSNG`, and `DEFDBL` for default type declarations.
+- Support `FIELD`, `LSET`, and `RSET` for formal Random Access File record handling.
 - Add support for `CONT`, `STOP`, and better direct-mode behavior.
 - Add broader tests for `PEEK`, `POKE`, and `VARPTR` edge cases.
+- Implement `WAIT` for port monitoring (or a simulated equivalent).
 
 ## Graphics
 
+- Implement `WINDOW` and `VIEW` for custom coordinate mapping and viewports.
 - Add screenshot or pixel-buffer tests for graphics primitives.
 
 ## Testing and project hygiene
@@ -27,7 +33,7 @@
 - Add a developer note documenting how to add a new BASIC keyword.
 
 ## UX and documentation
-
+- Implement event trapping: `ON KEY(n)`, `ON TIMER(n)`, and `ON STRIG(n)`.
 - Add a command-line option to dump supported commands.
 - Add a command support matrix: supported, partial, planned.
 - Add examples for file I/O, graphics, sound, arrays, and error handling.

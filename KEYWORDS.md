@@ -23,6 +23,11 @@
 - `RESTORE [line]`: Resets `DATA` pointer.
 - `SWAP var1, var2`: Exchanges values of two variables or array elements.
 
+## Operators
+- `AND`: Bitwise logical AND.
+- `OR`: Bitwise logical OR.
+- `XOR`: Bitwise logical XOR.
+
 ## Input and Output
 - `BEEP`: Sounds the speaker.
 - `CLS`: Clears the screen.

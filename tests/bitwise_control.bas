@@ -1,0 +1,11 @@
+10 A = 1: B = 2: C = 3: D = 4
+20 IF (A < B) AND (C < D) THEN PRINT "IF AND PASS"
+30 IF (A > B) OR (C < D) THEN PRINT "IF OR PASS"
+40 IF (A < B) XOR (C > D) THEN PRINT "IF XOR PASS"
+50 ' Test bitwise in WHILE condition
+60 X = 1: WHILE (X < 10) AND (X > 0): PRINT X;: X = X + 3: WEND: PRINT
+70 ' Test bitwise in ON...GOTO
+80 ON (3 AND 1) GOTO 100, 200
+90 PRINT "ON FAIL": END
+100 PRINT "ON PASS"
+110 END
