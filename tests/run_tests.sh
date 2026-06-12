@@ -108,6 +108,7 @@ TESTS=(
   "tests/bitwise_control"
   "tests/nested_paren"
   "tests/def_types"
+  "tests/auto_screenshot"
 )
 
 for t in "${TESTS[@]}"; do
@@ -119,7 +120,18 @@ for t in "${TESTS[@]}"; do
     touch -t 202606100901.16 tests/f.tmp
   fi
 
-  OUT=$(./basica "$t.bas" 2>&1)
+  if [ "$t" = "tests/auto_screenshot" ]; then
+    rm -f tests/auto_out.png
+    OUT=$(./basica -w -x "$t.bas" 2>&1)
+    if [ ! -f tests/auto_out.png ]; then
+      echo "$t FAIL: screenshot file tests/auto_out.png not found"
+      exit 2
+    fi
+    rm -f tests/auto_out.png
+  else
+    OUT=$(./basica "$t.bas" 2>&1)
+  fi
+
   EXP_FILE="$t.expected"
   if [ ! -f "$EXP_FILE" ]; then
     echo "Expected file missing: $EXP_FILE"

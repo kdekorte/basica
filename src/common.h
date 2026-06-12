@@ -44,6 +44,7 @@ typedef struct {
     char text[256];
     int int_val;
     double double_val;
+    int is_double;
 } Token;
 
 typedef struct Statement {

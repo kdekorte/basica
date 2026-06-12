@@ -6,6 +6,7 @@ Generated: 2026-06-10
 
 ## 2026-06-10
 
+- Add `-x` / `--exit-on-finish` command-line option to exit immediately after program completion when in graphics mode.
 - Implement bitwise operations for `AND`, `OR`, and `XOR` when used with numeric expressions (converts to 16-bit integers).
 - Implement `DEFINT`, `DEFSTR`, `DEFSNG`, and `DEFDBL` for default variable type declarations based on starting letters.
 - Implement standard BASIC error codes and tracking variables `ERR` and `ERL`. Updated error reporting to include line numbers.

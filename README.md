@@ -35,6 +35,12 @@ Suppress startup output and REPL prompts:
 ./basica -q demo/hello.bas
 ```
 
+Exit immediately after finish in graphics mode (for automation/screenshots):
+
+```sh
+./basica -w -x demo/hello.bas
+```
+
 Show help:
 
 ```sh

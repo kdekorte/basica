@@ -14,7 +14,6 @@
 
 ## Interpreter correctness
 
-- Support type suffixes for variables: `%` (integer), `!` (single precision), and `#` (double precision).
 - Support `FIELD`, `LSET`, and `RSET` for formal Random Access File record handling.
 - Add support for `CONT`, `STOP`, and better direct-mode behavior.
 - Add broader tests for `PEEK`, `POKE`, and `VARPTR` edge cases.

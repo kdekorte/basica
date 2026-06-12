@@ -1,3 +1,9 @@
-String Variable
- 100 
- 50.5 
+I% (10.5): 11 
+I% (10.4): 10 
+F!: 1.234568 
+D#: 1.234567890123456 
+A (default): 1 
+A%: 2 
+A#: 3 
+A after A! assignment: 10 
+Caught expected SWAP type mismatch

@@ -143,6 +143,7 @@ static const KeywordMap keyword_table[] = {
 Token get_next_token(const char **input) {
     Token token;
     token.text[0] = '\0';
+    token.is_double = 0;
     
     while (isspace(**input)) (*input)++;
 
@@ -154,10 +155,38 @@ Token get_next_token(const char **input) {
     if (isdigit(**input) || **input == '.') {
         char buffer[32];
         int i = 0;
-        while (isdigit(**input) || **input == '.') buffer[i++] = *(*input)++;
+        int is_double = 0;
+        while (isdigit(**input) || **input == '.' || toupper(**input) == 'E' || toupper(**input) == 'D') {
+            char c = **input;
+            if (toupper(c) == 'D') is_double = 1;
+            
+            // atof expects 'E' for exponents; convert 'D' internally
+            buffer[i++] = (toupper(c) == 'D') ? 'E' : c;
+            (*input)++;
+            
+            // Handle signs in exponents
+            if (toupper(c) == 'E' || toupper(c) == 'D') {
+                if (**input == '+' || **input == '-') buffer[i++] = *(*input)++;
+            }
+        }
+        
+        // Handle suffixes
+        if (**input == '!') { (*input)++; } 
+        else if (**input == '#') { (*input)++; is_double = 1; }
+        else if (**input == '%') { (*input)++; }
+        
+        // Rule: numbers with more than 7 digits or a dot are double in some dialects,
+        // but IBM BASICA treats any number with # or D as double. 
+        // Without suffix, if it has a dot or E, it's single.
         buffer[i] = '\0';
         token.type = TOKEN_NUMBER;
         token.double_val = atof(buffer);
+        token.is_double = is_double;
+        
+        if (!is_double) {
+            // Force single precision truncation
+            token.double_val = (double)((float)token.double_val);
+        }
         token.int_val = (int)token.double_val;
         return token;
     }
@@ -214,6 +243,7 @@ Token get_next_token(const char **input) {
     } else {
         token.type = TOKEN_IDENTIFIER;
         strcpy(token.text, buffer);
+        if (i > 0 && buffer[i-1] == '#') token.is_double = 1;
     }
 
     if (i == 0 && **input != '\0') {

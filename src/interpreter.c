@@ -26,6 +26,8 @@ static char internal_command_line[1024] = "";
 
 static unsigned char basica_memory[65536];
 
+static int last_expression_is_double = 0;
+
 static char default_type_map[26] = {
     '!', '!', '!', '!', '!', '!', '!', '!', '!', '!', '!', '!', '!',
     '!', '!', '!', '!', '!', '!', '!', '!', '!', '!', '!', '!', '!'
@@ -146,6 +148,7 @@ static int find_variable(const char *name);
 static int is_string_var(const char *name);
 static int parse_array_index(const char **input, int var_idx);
 static void set_string_variable(int idx, int array_idx, const char *value);
+static void set_numeric_variable(int idx, int array_idx, double val);
 double evaluate_expression(const char **input);
 
 static void clear_data_pointer(void) {
@@ -265,22 +268,31 @@ static int read_next_data_into_variable(const char **input) {
     if (is_string) {
         set_string_variable(var_idx, array_idx, item);
     } else {
-        double val = atof(item);
-
-        // Round to nearest integer if the variable has the '%' suffix
-        const char *name = vars[var_idx].name;
-        size_t len = strlen(name);
-        if (len > 0 && name[len - 1] == '%') {
-            val = (double)(short)round(val);
-        }
-
-        if (array_idx >= 0 && vars[var_idx].array && array_idx >= 0 && array_idx < vars[var_idx].array_size) {
-            vars[var_idx].array[array_idx] = val;
-        } else {
-            vars[var_idx].value = val;
-        }
+        set_numeric_variable(var_idx, array_idx, atof(item));
     }
     return 1;
+}
+
+static void set_numeric_variable(int idx, int array_idx, double val) {
+    const char *name = vars[idx].name;
+    size_t len = strlen(name);
+    char suffix = (len > 0) ? name[len - 1] : '!';
+
+    if (suffix == '%') {
+        if (val < -32768.5 || val > 32767.5) {
+            report_runtime_error(ERR_OVERFLOW);
+            return;
+        }
+        val = round(val);
+    } else if (suffix == '!') {
+        val = (double)((float)val);
+    }
+
+    if (array_idx >= 0 && vars[idx].array && array_idx < vars[idx].array_size) {
+        vars[idx].array[array_idx] = val;
+    } else {
+        vars[idx].value = val;
+    }
 }
 
 static void randomize_seed(const char **input) {
@@ -390,7 +402,7 @@ static int find_variable(const char *name) {
             int first = toupper((unsigned char)normalized[0]);
             if (first >= 'A' && first <= 'Z') {
                 char suffix = default_type_map[first - 'A'];
-                if (suffix != '\0' && suffix != '!') {
+                if (suffix != '\0') {
                     normalized[len] = suffix;
                     normalized[len+1] = '\0';
                 }
@@ -804,18 +816,7 @@ static void assign_input_value(int idx, int array_idx, int is_string, const char
             vars[idx].s_value = strdup(value);
         }
     } else {
-        double val = atof(value);
-        // Round to nearest integer if the variable has the '%' suffix
-        const char *name = vars[idx].name;
-        size_t len = strlen(name);
-        if (len > 0 && name[len - 1] == '%') {
-            val = (double)(short)round(val);
-        }
-        if (array_idx >= 0 && vars[idx].array && array_idx < vars[idx].array_size) {
-            vars[idx].array[array_idx] = val;
-        } else {
-            vars[idx].value = val;
-        }
+        set_numeric_variable(idx, array_idx, atof(value));
     }
 }
 
@@ -872,18 +873,7 @@ static void execute_assignment(const char **input, Token var_token) {
         }
         set_string_variable(idx, array_idx, value);
     } else {
-        double val = evaluate_expression(input);
-        // Round to nearest integer if the variable has the '%' suffix
-        const char *name = vars[idx].name;
-        size_t len = strlen(name);
-        if (len > 0 && name[len - 1] == '%') {
-            val = (double)(short)round(val);
-        }
-        if (array_idx >= 0 && vars[idx].array && array_idx >= 0 && array_idx < vars[idx].array_size) {
-            vars[idx].array[array_idx] = val;
-        } else {
-            vars[idx].value = val;
-        }
+        set_numeric_variable(idx, array_idx, evaluate_expression(input));
     }
 }
 
@@ -937,7 +927,10 @@ double evaluate_expression(const char **input);
 
 static double primary(const char **input) {
     Token t = get_next_token(input);
-    if (t.type == TOKEN_NUMBER) return t.double_val;
+    if (t.type == TOKEN_NUMBER) {
+        if (t.is_double) last_expression_is_double = 1;
+        return t.double_val;
+    }
     if (t.type == TOKEN_ARGC) return (double)internal_argc;
     if (t.type == TOKEN_IDENTIFIER) {
         if (strcasecmp(t.text, "ERR") == 0) return (double)last_runtime_error_code;
@@ -964,6 +957,10 @@ static double primary(const char **input) {
             }
         }
         int idx = find_variable(t.text);
+        if (idx != -1) {
+            const char *v_name = vars[idx].name;
+            if (v_name[strlen(v_name)-1] == '#') last_expression_is_double = 1;
+        }
         const char *look_ptr = *input; // Peek to see if it's an array access
         Token next = get_next_token(&look_ptr);
         if (next.type == TOKEN_LPAREN) {
@@ -1360,11 +1357,14 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                     last_was_numeric = 0;
                 } else {
                     ptr = item_saved;
-                    double val = evaluate_expression(&ptr);
+                    last_expression_is_double = 0;
+                    double val = evaluate_expression(&ptr); 
+                    int prec = last_expression_is_double ? 16 : 7;
+
                     if (using_mode) apply_basica_using(using_fmt, val, val_buf, sizeof(val_buf));
                     else {
-                        if (val >= 0) snprintf(val_buf, sizeof(val_buf), " %g ", val);
-                        else snprintf(val_buf, sizeof(val_buf), "%g ", val);
+                        if (val >= 0) snprintf(val_buf, sizeof(val_buf), " %.*g ", prec, val);
+                        else snprintf(val_buf, sizeof(val_buf), "%.*g ", prec, val);
                     }
                     last_was_numeric = 1;
                 }
@@ -1584,12 +1584,22 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
             int idx2 = find_variable(v2_tok.text);
             int a_idx2 = parse_array_index(&ptr, idx2);
 
-            int is_str1 = (v1_tok.text[0] != '\0' && v1_tok.text[strlen(v1_tok.text)-1] == '$');
-            int is_str2 = (v2_tok.text[0] != '\0' && v2_tok.text[strlen(v2_tok.text)-1] == '$');
+            int is_str1 = is_string_var(v1_tok.text);
+            int is_str2 = is_string_var(v2_tok.text);
 
             if (is_str1 != is_str2) {
                 report_runtime_error(ERR_TYPE_MISMATCH);
-            } else if (a_idx1 == -1 && a_idx2 == -1) {
+            } else if (!is_str1) {
+                const char *n1 = vars[idx1].name;
+                const char *n2 = vars[idx2].name;
+                if (n1[strlen(n1)-1] != n2[strlen(n2)-1]) {
+                    report_runtime_error(ERR_TYPE_MISMATCH);
+                    return;
+                }
+            }
+            if (runtime_error_occurred) return;
+
+            if (a_idx1 == -1 && a_idx2 == -1) {
                 // Swapping entire variables/arrays
                 double tmp_val = vars[idx1].value; vars[idx1].value = vars[idx2].value; vars[idx2].value = tmp_val;
                 char *tmp_sval = vars[idx1].s_value; vars[idx1].s_value = vars[idx2].s_value; vars[idx2].s_value = tmp_sval;
@@ -1811,7 +1821,7 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 if (get_next_token(&check_ptr).type == TOKEN_LPAREN) {
                     array_idx = parse_array_index(&ptr, idx);
                 } // No else, array_idx remains -1 if no paren
-                if (var.text[strlen(var.text)-1] == '$') {
+                if (is_string_var(var.text)) {
                     // erase string variable or string array element
                     if (array_idx >= 0 && vars[idx].s_array && array_idx < vars[idx].array_size) {
                         if (vars[idx].s_array[array_idx]) free(vars[idx].s_array[array_idx]);
@@ -2025,7 +2035,7 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 }
                 if (dim_err) break;
                 
-                if (var.text[strlen(var.text)-1] == '$') {
+                if (is_string_var(var.text)) {
                     if (vars[idx].s_array) {
                         report_runtime_error(ERR_DUPLICATE_DEFINITION);
                         break;
@@ -2322,7 +2332,7 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                             Token tok = get_next_token(&ptr);
                             if (tok.type == TOKEN_STRING) {
                                 strncpy(data, tok.text, sizeof(data)-1);
-                            } else if (tok.type == TOKEN_IDENTIFIER && tok.text[strlen(tok.text)-1] == '$') {
+                            } else if (tok.type == TOKEN_IDENTIFIER && is_string_var(tok.text)) {
                                 int src_idx = find_variable(tok.text);
                                 int src_array_idx = parse_array_index(&ptr, src_idx);
                                 char temp[512] = "";
@@ -2403,7 +2413,7 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                         if (sep.type != TOKEN_COMMA) { ptr = saved; }
                         else {
                             Token var = get_next_token(&ptr);
-                            if (!(var.type == TOKEN_IDENTIFIER && var.text[strlen(var.text)-1] == '$')) { ptr = saved; }
+                            if (!(var.type == TOKEN_IDENTIFIER && is_string_var(var.text))) { ptr = saved; }
                             else {
                                 int idx = find_variable(var.text);
                                 int array_idx = parse_array_index(&ptr, idx);
@@ -2483,16 +2493,14 @@ void run_program() {
         Statement *exec_stmt = curr;
         current_executing_line = exec_stmt->line_number;
         const char *ptr = (resume_ptr) ? resume_ptr : exec_stmt->raw_command;
-        const char *stmt_start = ptr;
         resume_ptr = NULL;
         int jumped = 0;
 
         while (*ptr && !stop_running) {
-            stmt_start = ptr;
-            const char *exec_start = stmt_start;
+            const char *command_start_ptr = ptr;
             Token t = get_next_token(&ptr);
             if (t.type == TOKEN_COLON) continue;
-
+            
             if (t.type == TOKEN_IF) {
                 double cond_val = evaluate_expression(&ptr);
                 Token then_tok = get_next_token(&ptr);
@@ -2563,11 +2571,12 @@ void run_program() {
                     }
                 }
             }
-            
+            // Handle FOR loop
             if (t.type == TOKEN_FOR) {
                 Token var = get_next_token(&ptr);
                 Token eq = get_next_token(&ptr);
                 if (eq.type != TOKEN_EQUALS) {
+                    ptr = command_start_ptr;
                     report_runtime_error(ERR_SYNTAX_ERROR);
                     break;
                 }
@@ -2591,11 +2600,11 @@ void run_program() {
                     int nest = 1;
                     while (nest > 0 && exec_stmt) {
                         while (*ptr) {
-                            Token skip_t = get_next_token(&ptr);
+                            Token skip_t = get_next_token(&ptr); // Advance ptr
                             if (skip_t.type == TOKEN_FOR) nest++;
                             else if (skip_t.type == TOKEN_NEXT) {
                                 Token next_var = get_next_token(&ptr);
-                                if (next_var.type == TOKEN_IDENTIFIER && strcasecmp(next_var.text, var.text) == 0) {
+                                if (next_var.type == TOKEN_IDENTIFIER && find_variable(next_var.text) == idx) {
                                     nest--;
                                 } else if (next_var.type == TOKEN_EOF || next_var.type == TOKEN_COLON) {
                                     nest--; // NEXT without variable matches current FOR
@@ -2632,7 +2641,7 @@ void run_program() {
             }
             
             if (t.type == TOKEN_WHILE) {
-                const char *cond_start = stmt_start;
+                const char *cond_start = command_start_ptr;
                 double val = evaluate_expression(&ptr);
                 if (val != 0) {
                     // Push only if this WHILE is not already the current active loop
@@ -2653,7 +2662,7 @@ void run_program() {
                     int nest = 1;
                     while (nest > 0 && exec_stmt) {
                         while (*ptr) {
-                            Token skip_t = get_next_token(&ptr);
+                            Token skip_t = get_next_token(&ptr); // Advance ptr
                             if (skip_t.type == TOKEN_WHILE) nest++;
                             else if (skip_t.type == TOKEN_WEND) nest--;
                             if (nest == 0) {
@@ -2675,6 +2684,7 @@ void run_program() {
                 continue;
             }
 
+            // Handle WEND
             if (t.type == TOKEN_WEND) {
                 if (while_ptr > 0) {
                     curr = while_stack[while_ptr-1].stmt;
@@ -2687,12 +2697,12 @@ void run_program() {
                 }
             }
 
-
+            // Handle ON GOTO/GOSUB
             if (t.type == TOKEN_ON) {
-                const char *on_ptr = ptr;
+                const char *on_ptr = ptr; // Save ptr to check for ON ERROR
                 Token next_on = get_next_token(&on_ptr);
                 if (next_on.type == TOKEN_ERR || (next_on.type == TOKEN_IDENTIFIER && strcasecmp(next_on.text, "ERROR") == 0)) {
-                    ptr = exec_start;
+                    ptr = command_start_ptr;
                     interpret_line_at_ptr(&ptr, 0);
                     continue;
                 }
@@ -2728,6 +2738,7 @@ void run_program() {
                 }
                 continue;
             }
+            // Handle GOSUB
             if (t.type == TOKEN_GOSUB) {
                 Token target = get_next_token(&ptr);
                 if (gosub_ptr < 32) {
@@ -2744,6 +2755,7 @@ void run_program() {
                 }
             }
 
+            // Handle RETURN
             if (t.type == TOKEN_RETURN) {
                 if (gosub_ptr > 0) {
                     gosub_ptr--;
@@ -2757,18 +2769,22 @@ void run_program() {
                 }
             }
 
+            // Handle NEXT
             if (t.type == TOKEN_NEXT) {
+                const char *next_var_ptr = ptr;
                 Token next_var = get_next_token(&ptr);
                 int f = -1;
                 if (next_var.type == TOKEN_IDENTIFIER) {
+                    int target_idx = find_variable(next_var.text);
                     for (int i = for_ptr - 1; i >= 0; i--) {
-                        if (strcasecmp(vars[for_stack[i].var_idx].name, next_var.text) == 0) {
+                        if (for_stack[i].var_idx == target_idx) {
                             f = i;
                             break;
                         }
                     }
-                } else if (for_ptr > 0) {
-                    f = for_ptr - 1;
+                } else {
+                    ptr = next_var_ptr; // Rewind if not an identifier
+                    if (for_ptr > 0) f = for_ptr - 1;
                 }
                 if (f != -1) {
                     vars[for_stack[f].var_idx].value += for_stack[f].step_val;
@@ -2784,9 +2800,9 @@ void run_program() {
                 } else {
                     report_runtime_error(ERR_NEXT_WITHOUT_FOR);
                 }
-                continue;
+                break; // NEXT is a line-level control, break from inner loop to advance 'curr'
             }
-
+            // Handle GOTO
             if (t.type == TOKEN_GOTO) {
                 Token target = get_next_token(&ptr);
                 Statement *target_stmt = find_line(target.int_val);
@@ -2823,7 +2839,7 @@ void run_program() {
                 } else {
                     ptr = saved;
                     curr = error_stmt;
-                    resume_ptr = error_ptr;
+                    resume_ptr = command_start_ptr;
                 }
                 if (!curr) {
                     report_runtime_error(ERR_CANT_RESUME);
@@ -2833,14 +2849,15 @@ void run_program() {
                 break;
             }
 
-            // Pass the pointer back to the start of this command (or the exec_start for same-line FOR body)
-            ptr = exec_start;
+            // If it's not a control flow statement handled above,
+            // then it's a regular command that interpret_line_at_ptr should handle.
+            ptr = command_start_ptr;
             interpret_line_at_ptr(&ptr, 0);
         }
 
         if (runtime_error_occurred) {
             error_stmt = exec_stmt;
-            error_ptr = stmt_start;
+            error_ptr = exec_stmt->raw_command;
             error_next_ptr = ptr;
         }
 
