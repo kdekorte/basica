@@ -47,6 +47,7 @@ void add_line(int line_num, const char *text) {
         strncpy((*curr)->raw_command, text, 255);
     } else {
         Statement *new_stmt = malloc(sizeof(Statement));
+        if (!new_stmt) return;
         new_stmt->line_number = line_num;
         strncpy(new_stmt->raw_command, text, 255);
         new_stmt->next = *curr;

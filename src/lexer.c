@@ -144,6 +144,8 @@ Token get_next_token(const char **input) {
     Token token;
     token.text[0] = '\0';
     token.is_double = 0;
+    token.int_val = 0;
+    token.double_val = 0.0;
     
     while (isspace(**input)) (*input)++;
 
