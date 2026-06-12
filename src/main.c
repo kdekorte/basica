@@ -9,12 +9,14 @@
 #include "program.h"
 
 static int quiet_mode = 0;
+static int exit_on_finish = 0;
 
 static void print_usage(const char *prog) {
     printf("Usage: %s [options] [program.bas]\n", prog);
     printf("Options:\n");
     printf("  -w, --window     enable graphics window\n");
     printf("  -q, --quiet      suppress startup header and REPL prompts\n");
+    printf("  -x, --exit-on-finish exit immediately after program finishes (only with -w)\n");
     printf("  -v, --version    show version information\n");
     printf("  -h, --help       show this help message\n");
 }
@@ -73,9 +75,9 @@ void run_file(const char *filename) {
     run_program();
 
     if (graphics_is_active()) {
-        set_window_title("BASICA Virtual Framebuffer - Press any key to quit...");
+        if (!exit_on_finish) set_window_title("BASICA Virtual Framebuffer - Press any key to quit...");
         graphics_present_now();
-        wait_for_keypress();
+        if (!exit_on_finish) wait_for_keypress();
     }
 }
 
@@ -93,6 +95,8 @@ int main(int argc, char **argv) {
             use_window = 1;
         } else if (strcmp(argv[i], "-q") == 0 || strcmp(argv[i], "--quiet") == 0) {
             quiet_mode = 1;
+        } else if (strcmp(argv[i], "-x") == 0 || strcmp(argv[i], "--exit-on-finish") == 0) {
+            exit_on_finish = 1;
         } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--version") == 0) {
             printf("BASICA %s\n", BASICA_VERSION);
             return 0;
