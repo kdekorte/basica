@@ -242,6 +242,9 @@ Token get_next_token(const char **input) {
 
     if (res) {
         token.type = res->type;
+        if (token.type == TOKEN_REM) {
+            while (**input != '\0' && **input != '\n') (*input)++;
+        }
     } else {
         token.type = TOKEN_IDENTIFIER;
         strcpy(token.text, buffer);
@@ -254,4 +257,22 @@ Token get_next_token(const char **input) {
         token.text[1] = '\0';
     }
     return token;
+}
+
+void tokenize_line(Statement *stmt) {
+    const char *ptr = stmt->raw_command;
+    int capacity = 16;
+    stmt->tokens = malloc(capacity * sizeof(Token));
+    stmt->token_count = 0;
+    while (1) {
+        const char *token_start = ptr;
+        Token t = get_next_token(&ptr);
+        t.start_ptr = token_start;
+        if (stmt->token_count >= capacity) {
+            capacity *= 2;
+            stmt->tokens = realloc(stmt->tokens, capacity * sizeof(Token));
+        }
+        stmt->tokens[stmt->token_count++] = t;
+        if (t.type == TOKEN_EOF) break;
+    }
 }

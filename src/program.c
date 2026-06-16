@@ -3,6 +3,7 @@
 #include <string.h>
 #include "program.h"
 #include "interpreter.h" // For basic_output
+#include "lexer.h"
 
 static Statement *head = NULL;
 static Statement **line_index = NULL;
@@ -45,6 +46,7 @@ void add_line(int line_num, const char *text) {
 
     if (*curr && (*curr)->line_number == line_num) {
         strncpy((*curr)->raw_command, text, 255);
+        tokenize_line(*curr);
     } else {
         Statement *new_stmt = malloc(sizeof(Statement));
         if (!new_stmt) return;
@@ -52,6 +54,7 @@ void add_line(int line_num, const char *text) {
         strncpy(new_stmt->raw_command, text, 255);
         new_stmt->next = *curr;
         *curr = new_stmt;
+        tokenize_line(new_stmt);
     }
 }
 
@@ -99,6 +102,7 @@ void clear_program() {
     Statement *curr = head;
     while (curr) {
         Statement *next = curr->next;
+        if (curr->tokens) free(curr->tokens);
         free(curr);
         curr = next;
     }
@@ -112,6 +116,7 @@ void delete_line(int line_num) {
         if ((*curr)->line_number == line_num) {
             Statement *to_remove = *curr;
             *curr = to_remove->next;
+            if (to_remove->tokens) free(to_remove->tokens);
             free(to_remove);
             return;
         }

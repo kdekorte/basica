@@ -1,0 +1,9 @@
+10 ITERATIONS = 10000000
+20 COUNT = 0
+30 START = TIMER: ' Assumes TIMER returns seconds or ms
+40 FOR I = 0 TO ITERATIONS - 1
+50   IF I MOD 2 = 0 THEN COUNT = COUNT + I ELSE COUNT = COUNT - I
+60 NEXT I
+70 FINISH = TIMER
+80 PRINT "BASIC execution time: "; (FINISH - START); " seconds"
+90 PRINT "Final count: "; COUNT

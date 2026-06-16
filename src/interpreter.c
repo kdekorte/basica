@@ -19,6 +19,13 @@ volatile sig_atomic_t stop_running = 0;
 
 static Variable vars[1024]; 
 static int var_count = 0;
+static int var_hash_table[2048]; // Hash table for O(1) variable lookup
+
+typedef struct {
+    Token *tokens;
+    int pos;
+} TokenStream;
+
 static int print_col = 0;
 static int internal_argc = 0;
 static char **internal_argv = NULL;
@@ -56,6 +63,8 @@ static UserFunction user_functions[64];
 static int user_function_count = 0;
 
 void set_args(int argc, char **argv) {
+    // Initialize hash table
+    for (int i = 0; i < 2048; i++) var_hash_table[i] = -1;
     internal_argc = argc;
     internal_argv = argv;
     internal_command_line[0] = '\0';
@@ -63,6 +72,98 @@ void set_args(int argc, char **argv) {
         if (i > 1) strncat(internal_command_line, " ", sizeof(internal_command_line) - 1);
         strncat(internal_command_line, argv[i], sizeof(internal_command_line) - 1);
     }
+}
+
+static int find_variable(const char *name);
+static int is_string_var(const char *name);
+static int parse_array_index(const char **input, int var_idx);
+static int parse_array_index_tok(TokenStream *ts, int var_idx);
+static void set_string_variable(int idx, int array_idx, const char *value);
+static void set_numeric_variable(int idx, int array_idx, double val);
+static double relational_expression_tok(TokenStream *ts);
+static double logical_not_tok(TokenStream *ts);
+static double bitwise_and_tok(TokenStream *ts);
+static double bitwise_or_tok(TokenStream *ts);
+double evaluate_expression(const char **input);
+double evaluate_expression_tok(TokenStream *ts);
+
+// Helper to skip tokens until a matching end token is found
+// Returns the statement *after* the end token, and the token position within that statement.
+// If not found, returns NULL for statement.
+static Statement* skip_to_matching_token(Statement *start_stmt, int start_ts_pos, TokenType start_type, TokenType end_type, int *out_ts_pos) {
+    Statement *current_stmt = start_stmt;
+    int current_ts_pos = start_ts_pos;
+    int nest_depth = 1;
+
+    while (nest_depth > 0 && current_stmt) {
+        while (current_ts_pos < current_stmt->token_count) {
+            Token t = current_stmt->tokens[current_ts_pos++];
+            if (t.type == start_type) nest_depth++;
+            else if (t.type == end_type) nest_depth--;
+            if (nest_depth == 0) {
+                // Found the matching end token. Now find the statement *after* it.
+                if (current_ts_pos < current_stmt->token_count) {
+                    // There are more tokens on this line after the end token
+                    *out_ts_pos = current_ts_pos;
+                    return current_stmt;
+                } else {
+                    // End token was the last on this line, move to next statement
+                    current_stmt = find_next_statement(current_stmt->line_number);
+                    *out_ts_pos = 0; // Start from beginning of next statement
+                    return current_stmt;
+                }
+            }
+        }
+        // Reached end of current statement, move to next
+        current_stmt = find_next_statement(current_stmt->line_number);
+        if (current_stmt) {
+            current_ts_pos = 0; // Start from beginning of next statement
+        }
+    }
+    return NULL; // Matching end token not found
+}
+
+// Helper to skip tokens until a matching NEXT token for a specific FOR variable is found
+// Returns the statement *after* the NEXT token, and the token position within that statement.
+// If not found, returns NULL for statement.
+static Statement* skip_for_block(Statement *start_stmt, int start_ts_pos, int for_var_idx, int *out_ts_pos) {
+    Statement *current_stmt = start_stmt;
+    int current_ts_pos = start_ts_pos;
+    int nest_depth = 1;
+
+    while (nest_depth > 0 && current_stmt) {
+        while (current_ts_pos < current_stmt->token_count) {
+            Token t = current_stmt->tokens[current_ts_pos++];
+            if (t.type == TOKEN_FOR) {
+                nest_depth++;
+            } else if (t.type == TOKEN_NEXT) {
+                if (current_ts_pos < current_stmt->token_count && current_stmt->tokens[current_ts_pos].type == TOKEN_IDENTIFIER) {
+                    int next_var_idx = find_variable(current_stmt->tokens[current_ts_pos].text);
+                    if (next_var_idx == for_var_idx) {
+                        nest_depth--;
+                        current_ts_pos++; // Consume the variable name
+                    }
+                } else {
+                    nest_depth--; // NEXT without variable matches innermost FOR
+                }
+            }
+            if (nest_depth == 0) {
+                if (current_ts_pos < current_stmt->token_count) {
+                    *out_ts_pos = current_ts_pos;
+                    return current_stmt;
+                } else {
+                    current_stmt = find_next_statement(current_stmt->line_number);
+                    *out_ts_pos = 0;
+                    return current_stmt;
+                }
+            }
+        }
+        current_stmt = find_next_statement(current_stmt->line_number);
+        if (current_stmt) {
+            current_ts_pos = 0;
+        }
+    }
+    return NULL;
 }
 
 static const char* get_error_message(RuntimeError code) {
@@ -147,9 +248,11 @@ static int parse_string_expression(const char **input, char *out, int out_size);
 static int find_variable(const char *name);
 static int is_string_var(const char *name);
 static int parse_array_index(const char **input, int var_idx);
+static int parse_array_index_tok(TokenStream *ts, int var_idx);
 static void set_string_variable(int idx, int array_idx, const char *value);
 static void set_numeric_variable(int idx, int array_idx, double val);
 double evaluate_expression(const char **input);
+double evaluate_expression_tok(TokenStream *ts);
 
 static void clear_data_pointer(void) {
     data_stmt = NULL;
@@ -391,30 +494,47 @@ static int is_string_var(const char *name) {
     return 0;
 }
 
+static unsigned int hash_name(const char *name) {
+    unsigned int hash = 5381;
+    int c;
+    while ((c = *name++)) hash = ((hash << 5) + hash) + (unsigned int)c;
+    return hash % 2048;
+}
+
 static int find_variable(const char *name) {
     char normalized[64];
-    strncpy(normalized, name, 63);
-    normalized[63] = '\0';
-    int len = (int)strlen(normalized);
+    int i;
+    for (i = 0; i < 63 && name[i]; i++) {
+        normalized[i] = (char)toupper((unsigned char)name[i]);
+    }
+    normalized[i] = '\0';
+    int len = i;
+
     if (len > 0) {
         char last = normalized[len - 1];
         if (last != '$' && last != '%' && last != '!' && last != '#') {
-            int first = toupper((unsigned char)normalized[0]);
-            if (first >= 'A' && first <= 'Z') {
-                char suffix = default_type_map[first - 'A'];
-                if (suffix != '\0') {
-                    normalized[len] = suffix;
-                    normalized[len+1] = '\0';
-                }
+            char suffix = default_type_map[normalized[0] - 'A'];
+            if (suffix != '\0') {
+                normalized[len] = suffix;
+                normalized[len+1] = '\0';
             }
         }
     }
+
+    unsigned int h = hash_name(normalized);
+    int cached_idx = var_hash_table[h];
+    if (cached_idx != -1 && strcmp(vars[cached_idx].name, normalized) == 0) {
+        return cached_idx;
+    }
+
     for (int i = 0; i < var_count; i++) {
-        if (strcasecmp(vars[i].name, normalized) == 0) {
+        if (strcmp(vars[i].name, normalized) == 0) {
+            var_hash_table[h] = i;
             return i;
         }
     }
     if (var_count < 1024) {
+        var_hash_table[h] = var_count;
         memset(&vars[var_count], 0, sizeof(Variable));
         strncpy(vars[var_count].name, normalized, 31);
         vars[var_count].name[31] = '\0';
@@ -529,6 +649,27 @@ static int parse_array_index(const char **input, int var_idx) {
     // Auto-dimension if not already dimensioned
     ensure_array_dimensioned(var_idx, num_indices);
 
+    return calc_linear_index(&vars[var_idx], indices, num_indices);
+}
+
+static int parse_array_index_tok(TokenStream *ts, int var_idx) {
+    if (ts->tokens[ts->pos].type != TOKEN_LPAREN) return -1;
+    ts->pos++;
+
+    int indices[3] = {0};
+    int num_indices = 0;
+    indices[0] = (int)evaluate_expression_tok(ts);
+    num_indices = 1;
+
+    while (num_indices < 3) {
+        if (ts->tokens[ts->pos].type != TOKEN_COMMA) break;
+        ts->pos++;
+        indices[num_indices++] = (int)evaluate_expression_tok(ts);
+    }
+
+    if (ts->tokens[ts->pos].type == TOKEN_RPAREN) ts->pos++;
+
+    ensure_array_dimensioned(var_idx, num_indices);
     return calc_linear_index(&vars[var_idx], indices, num_indices);
 }
 
@@ -905,12 +1046,12 @@ static void clear_variables(void) {
     option_base_set = 0;
     arrays_dimensioned = 0;
     for (int i = 0; i < 26; i++) default_type_map[i] = '!';
+    for (int i = 0; i < 2048; i++) var_hash_table[i] = -1;
 }
 
 void basic_output(const char *text) { // Made non-static
     if (!graphics_is_active()) {
         printf("%s", text);
-        fflush(stdout);
     }
     graphics_print(text);
     for (int i = 0; text[i]; i++) {
@@ -924,6 +1065,165 @@ void basic_output(const char *text) { // Made non-static
 
 // Forward declarations for recursive descent expression parser
 double evaluate_expression(const char **input);
+static double primary(const char **input);
+
+static int is_string_token(Token t) {
+    if (t.type == TOKEN_STRING) return 1;
+    if (t.type == TOKEN_IDENTIFIER && is_string_var(t.text)) return 1;
+    if (t.text[0] != '\0' && t.text[strlen(t.text)-1] == '$') return 1;
+    return (t.type == TOKEN_CHR || t.type == TOKEN_LEFT || t.type == TOKEN_RIGHT ||
+            t.type == TOKEN_MID || t.type == TOKEN_UCASE || t.type == TOKEN_LCASE ||
+            t.type == TOKEN_TRIM || t.type == TOKEN_LTRIM || t.type == TOKEN_RTRIM ||
+            t.type == TOKEN_STR || t.type == TOKEN_HEX || t.type == TOKEN_OCT ||
+            t.type == TOKEN_STRING_FUNC || t.type == TOKEN_INKEY || t.type == TOKEN_GETS || t.type == TOKEN_ENVIRON ||
+            t.type == TOKEN_TIME || t.type == TOKEN_DATE || t.type == TOKEN_TAB ||
+            t.type == TOKEN_SPACE || t.type == TOKEN_SPC ||
+            t.type == TOKEN_ARGVS || t.type == TOKEN_COMMANDS);
+}
+
+static double primary_tok(TokenStream *ts) {
+    Token t = ts->tokens[ts->pos++];
+    if (t.type == TOKEN_NUMBER) {
+        if (t.is_double) last_expression_is_double = 1;
+        return t.double_val;
+    }
+    if (t.type == TOKEN_IDENTIFIER) {
+        int idx = find_variable(t.text);
+        int array_idx = parse_array_index_tok(ts, idx);
+        if (array_idx >= 0) {
+             return (vars[idx].array) ? vars[idx].array[array_idx] : 0;
+        }
+        return vars[idx].value;
+    }
+    if (t.type == TOKEN_LPAREN) {
+        double val = evaluate_expression_tok(ts);
+        if (ts->tokens[ts->pos].type == TOKEN_RPAREN) ts->pos++;
+        return val;
+    }
+    // Fallback for complex functions not yet in tok-path
+    ts->pos--;
+    const char *ptr = ts->tokens[ts->pos].start_ptr;
+    double val = primary(&ptr); 
+    while (ts->tokens[ts->pos].type != TOKEN_EOF && ts->tokens[ts->pos].start_ptr < ptr) {
+        ts->pos++;
+    }
+    return val;
+}
+
+static double unary_tok(TokenStream *ts) {
+    if (ts->tokens[ts->pos].type == TOKEN_PLUS) {
+        ts->pos++;
+        return unary_tok(ts);
+    }
+    if (ts->tokens[ts->pos].type == TOKEN_MINUS) {
+        ts->pos++;
+        return -unary_tok(ts);
+    }
+    return primary_tok(ts);
+}
+
+static double term_tok(TokenStream *ts) {
+    double val = unary_tok(ts);
+    while (1) {
+        Token t = ts->tokens[ts->pos];
+        if (t.type == TOKEN_STAR) { ts->pos++; val *= unary_tok(ts); }
+        else if (t.type == TOKEN_SLASH) { ts->pos++; double d = unary_tok(ts); if (d != 0) val /= d; }
+        else if (t.type == TOKEN_IDIV) { ts->pos++; double d = unary_tok(ts); if (d != 0) val = (long)(val / d); }
+        else if (t.type == TOKEN_MOD) { ts->pos++; double d = unary_tok(ts); if (d != 0) val = (long)val % (long)d; }
+        else break;
+    }
+    return val;
+}
+
+static double arithmetic_expression_tok(TokenStream *ts) {
+    double val = term_tok(ts);
+    while (1) {
+        Token t = ts->tokens[ts->pos];
+        if (t.type == TOKEN_PLUS) { ts->pos++; val += term_tok(ts); }
+        else if (t.type == TOKEN_MINUS) { ts->pos++; val -= term_tok(ts); }
+        else break;
+    }
+    return val;
+}
+
+static double relational_expression_tok(TokenStream *ts) {
+    double val = arithmetic_expression_tok(ts);
+    while (1) {
+        Token t = ts->tokens[ts->pos];
+        if (t.type == TOKEN_EQUALS) {
+            ts->pos++;
+            val = (val == arithmetic_expression_tok(ts)) ? -1.0 : 0.0;
+        }
+        else if (t.type == TOKEN_LESS) {
+            ts->pos++;
+            if (ts->tokens[ts->pos].type == TOKEN_GREATER) {
+                ts->pos++;
+                val = (val != arithmetic_expression_tok(ts)) ? -1.0 : 0.0;
+            } else if (ts->tokens[ts->pos].type == TOKEN_EQUALS) {
+                ts->pos++;
+                val = (val <= arithmetic_expression_tok(ts)) ? -1.0 : 0.0;
+            } else {
+                val = (val < arithmetic_expression_tok(ts)) ? -1.0 : 0.0;
+            }
+        }
+        else if (t.type == TOKEN_GREATER) {
+            ts->pos++;
+            if (ts->tokens[ts->pos].type == TOKEN_EQUALS) {
+                ts->pos++;
+                val = (val >= arithmetic_expression_tok(ts)) ? -1.0 : 0.0;
+            } else {
+                val = (val > arithmetic_expression_tok(ts)) ? -1.0 : 0.0;
+            }
+        }
+        else break;
+    }
+    return val;
+}
+
+static double logical_not_tok(TokenStream *ts) {
+    if (ts->tokens[ts->pos].type == TOKEN_NOT) {
+        ts->pos++;
+        return (double)(~(short)logical_not_tok(ts));
+    }
+    return relational_expression_tok(ts);
+}
+
+static double bitwise_and_tok(TokenStream *ts) {
+    double val = logical_not_tok(ts);
+    while (ts->tokens[ts->pos].type == TOKEN_AND) {
+        ts->pos++;
+        val = (double)((short)val & (short)logical_not_tok(ts));
+    }
+    return val;
+}
+
+static double bitwise_or_tok(TokenStream *ts) {
+    double val = bitwise_and_tok(ts);
+    while (ts->tokens[ts->pos].type == TOKEN_OR) {
+        ts->pos++;
+        val = (double)((short)val | (short)bitwise_and_tok(ts));
+    }
+    return val;
+}
+
+double evaluate_expression_tok(TokenStream *ts) {
+    if (ts->tokens[ts->pos].type != TOKEN_EOF && is_string_token(ts->tokens[ts->pos])) {
+        const char *p = ts->tokens[ts->pos].start_ptr;
+        double val = evaluate_expression(&p);
+        // Advance token position to match string pointer
+        while (ts->tokens[ts->pos].type != TOKEN_EOF && ts->tokens[ts->pos].start_ptr < p) {
+            ts->pos++;
+        }
+        return val;
+    }
+
+    double val = bitwise_or_tok(ts);
+    while (ts->tokens[ts->pos].type == TOKEN_XOR) {
+        ts->pos++;
+        val = (double)((short)val ^ (short)bitwise_or_tok(ts));
+    }
+    return val;
+}
 
 static double primary(const char **input) {
     Token t = get_next_token(input);
@@ -1153,20 +1453,6 @@ static double arithmetic_expression(const char **input) {
         else { *input = saved; break; }
     }
     return val;
-}
-
-static int is_string_token(Token t) {
-    if (t.type == TOKEN_STRING) return 1;
-    if (t.type == TOKEN_IDENTIFIER && is_string_var(t.text)) return 1;
-    if (t.text[0] != '\0' && t.text[strlen(t.text)-1] == '$') return 1;
-    return (t.type == TOKEN_CHR || t.type == TOKEN_LEFT || t.type == TOKEN_RIGHT ||
-            t.type == TOKEN_MID || t.type == TOKEN_UCASE || t.type == TOKEN_LCASE ||
-            t.type == TOKEN_TRIM || t.type == TOKEN_LTRIM || t.type == TOKEN_RTRIM ||
-            t.type == TOKEN_STR || t.type == TOKEN_HEX || t.type == TOKEN_OCT ||
-            t.type == TOKEN_STRING_FUNC || t.type == TOKEN_INKEY || t.type == TOKEN_GETS || t.type == TOKEN_ENVIRON ||
-            t.type == TOKEN_TIME || t.type == TOKEN_DATE || t.type == TOKEN_TAB ||
-            t.type == TOKEN_SPACE || t.type == TOKEN_SPC ||
-            t.type == TOKEN_ARGVS || t.type == TOKEN_COMMANDS);
 }
 
 static double relational_expression(const char **input) {
@@ -1929,6 +2215,7 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 }
             } else {
                 if (!suppress_question) basic_output("? ");
+                fflush(stdout);
                 if (graphics_is_active()) {
                     graphics_readline(line, sizeof(line));
                 } else if (fgets(line, sizeof(line), stdin)) {
@@ -2164,7 +2451,6 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 ptr = saved;
             }
             draw_line(x1, y1, x2, y2, col, fill);
-            update_graphics();
         } else if (t.type == TOKEN_CIRCLE) { // CIRCLE (cx,cy),radius[,color]
             int cx, cy, radius;
             const char *saved = ptr;
@@ -2197,7 +2483,6 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 ptr = saved;
             }
             draw_circle(cx, cy, radius, col, fill);
-            update_graphics();
         } else if (t.type == TOKEN_PAINT) { // PAINT (x,y)[,color[,border]]
             int x, y;
             const char *saved = ptr;
@@ -2227,7 +2512,6 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 ptr = saved;
             }
             draw_paint(x, y, col, border);
-            update_graphics();
         } else if (t.type == TOKEN_SCREEN) {
             int mode = (int)evaluate_expression(&ptr);
             init_graphics();
@@ -2488,106 +2772,75 @@ void run_program() {
     error_ptr = NULL;
     error_next_ptr = NULL;
 
+    int poll_counter = 0;
     while (curr && !stop_running) {
-        handle_events();
+        if (++poll_counter >= 1000) {
+            handle_events();
+            if (!graphics_is_active()) fflush(stdout);
+            poll_counter = 0;
+        }
+
         Statement *exec_stmt = curr;
         current_executing_line = exec_stmt->line_number;
-        const char *ptr = (resume_ptr) ? resume_ptr : exec_stmt->raw_command;
+        
+        int start_pos = 0;
+        if (resume_ptr) {
+            while (start_pos < exec_stmt->token_count && exec_stmt->tokens[start_pos].start_ptr < resume_ptr) {
+                start_pos++;
+            }
+        }
+        TokenStream ts = {exec_stmt->tokens, start_pos};
         resume_ptr = NULL;
+        
         int jumped = 0;
+        const char *ptr = exec_stmt->raw_command;
+        while (ts.pos < exec_stmt->token_count && !stop_running) {
+            Token t = ts.tokens[ts.pos++];
+            if (t.type == TOKEN_EOF || t.type == TOKEN_COLON) continue;
 
-        while (*ptr && !stop_running) {
+            ptr = t.start_ptr;
             const char *command_start_ptr = ptr;
-            Token t = get_next_token(&ptr);
-            if (t.type == TOKEN_COLON) continue;
-            
-            if (t.type == TOKEN_IF) {
-                double cond_val = evaluate_expression(&ptr);
-                Token then_tok = get_next_token(&ptr);
-                if (then_tok.type != TOKEN_THEN && then_tok.type != TOKEN_GOTO) {
-                    report_runtime_error(ERR_SYNTAX_ERROR);
-                    break;
-                }
 
-                const char *else_ptr = NULL;
-                const char *scan = ptr;
+            if (t.type == TOKEN_IF) {
+                double cond = evaluate_expression_tok(&ts);
+                // Consume THEN or GOTO token
+                if (ts.pos < exec_stmt->token_count && (ts.tokens[ts.pos].type == TOKEN_THEN || ts.tokens[ts.pos].type == TOKEN_GOTO)) {
+                    ts.pos++;
+                }
+                
+                if (cond != 0) continue;
+                
+                // Find ELSE or end of line
                 int depth = 0;
-                while (*scan) {
-                    const char *saved_scan = scan;
-                    Token tok = get_next_token(&scan);
-                    if (tok.type == TOKEN_LPAREN) depth++;
-                    else if (tok.type == TOKEN_RPAREN && depth > 0) depth--;
-                    else if (tok.type == TOKEN_IF) depth++;
-                    else if (tok.type == TOKEN_ELSE) {
-                        if (depth == 0) {
-                            else_ptr = saved_scan;
-                            break;
-                        }
+                while (ts.pos < exec_stmt->token_count) {
+                    if (ts.tokens[ts.pos].type == TOKEN_EOF) break;
+                    Token skip = ts.tokens[ts.pos++];
+                    if (skip.type == TOKEN_IF) depth++;
+                    else if (skip.type == TOKEN_ELSE) {
+                        if (depth == 0) break;
                         depth--;
                     }
                 }
-
-                if (cond_val != 0) {
-                    // Condition is true: execute THEN part
-                    // Check for immediate jump (e.g., IF cond THEN 100 or IF cond GOTO 100)
-                    const char *check_ptr = ptr;
-                    Token first = get_next_token(&check_ptr);
-                    if (first.type == TOKEN_NUMBER) {
-                        Statement *target = find_line(first.int_val);
-                        if (!target) {
-                            report_runtime_error(ERR_UNDEFINED_LINE_NUMBER);
-                        } else {
-                            curr = target;
-                            jumped = 1;
-                        }
-                        break;
-                    }
-                    if (first.type == TOKEN_GOTO) {
-                        Token target = get_next_token(&check_ptr);
-                        if (target.type == TOKEN_NUMBER) {
-                            Statement *target_stmt = find_line(target.int_val);
-                            if (!target_stmt) {
-                                report_runtime_error(ERR_UNDEFINED_LINE_NUMBER);
-                            } else {
-                                curr = target_stmt;
-                                jumped = 1;
-                            }
-                            break;
-                        }
-                        ptr = check_ptr; // Continue after GOTO
-                    }
-                    // Otherwise, just let the loop continue from current ptr (after THEN)
-                    continue;
-                } else {
-                    // Condition is false
-                    if (else_ptr) {
-                        ptr = else_ptr;
-                        get_next_token(&ptr); // consume ELSE
-                        continue;
-                    } else {
-                        // Skip rest of line
-                        ptr = "";
-                        break;
-                    }
-                }
+                continue;
             }
+            
             // Handle FOR loop
             if (t.type == TOKEN_FOR) {
-                Token var = get_next_token(&ptr);
-                Token eq = get_next_token(&ptr);
+                Token var = ts.tokens[ts.pos++];
+                Token eq = ts.tokens[ts.pos++];
                 if (eq.type != TOKEN_EQUALS) {
-                    ptr = command_start_ptr;
                     report_runtime_error(ERR_SYNTAX_ERROR);
                     break;
                 }
-                double start = evaluate_expression(&ptr);
-                get_next_token(&ptr); // TO
-                double end = evaluate_expression(&ptr);
+                double start = evaluate_expression_tok(&ts);
+                ts.pos++; // skip TO
+                double end = evaluate_expression_tok(&ts);
                 double step = 1.0;
-                const char *saved = ptr;
-                Token st = get_next_token(&ptr);
-                if (st.type == TOKEN_STEP) step = evaluate_expression(&ptr);
-                else ptr = saved;
+                if (ts.pos < exec_stmt->token_count && ts.tokens[ts.pos].type == TOKEN_STEP) {
+                    ts.pos++;
+                    step = evaluate_expression_tok(&ts);
+                }
+                
                 int idx = find_variable(var.text);
                 vars[idx].value = start;
 
@@ -2597,32 +2850,19 @@ void run_program() {
                 else if (step < 0 && start < end) should_skip = 1;
 
                 if (should_skip) {
-                    int nest = 1;
-                    while (nest > 0 && exec_stmt) {
-                        while (*ptr) {
-                            Token skip_t = get_next_token(&ptr); // Advance ptr
-                            if (skip_t.type == TOKEN_FOR) nest++;
-                            else if (skip_t.type == TOKEN_NEXT) {
-                                Token next_var = get_next_token(&ptr);
-                                if (next_var.type == TOKEN_IDENTIFIER && find_variable(next_var.text) == idx) {
-                                    nest--;
-                                } else if (next_var.type == TOKEN_EOF || next_var.type == TOKEN_COLON) {
-                                    nest--; // NEXT without variable matches current FOR
-                                }
-                            }
-                            if (nest == 0) {
-                                break;
-                            }
+                    int end_ts_pos = ts.pos; // Start searching from current position
+                    Statement *target_stmt = skip_for_block(exec_stmt, end_ts_pos, idx, &end_ts_pos);
+
+                    if (target_stmt) {
+                        curr = target_stmt;
+                        if (end_ts_pos < curr->token_count) {
+                            resume_ptr = curr->tokens[end_ts_pos].start_ptr;
+                        } else {
+                            resume_ptr = NULL; // NEXT was last token on line, advance to next line
                         }
-                        if (nest > 0) {
-                            exec_stmt = find_next_statement(exec_stmt->line_number);
-                            if (exec_stmt) {
-                                ptr = exec_stmt->raw_command;
-                            }
-                        }
+                    } else {
+                        report_runtime_error(ERR_NEXT_WITHOUT_FOR);
                     }
-                    curr = exec_stmt;
-                    resume_ptr = ptr;
                     jumped = 1;
                     break; // Exit the command loop for this line
                 }
@@ -2632,7 +2872,10 @@ void run_program() {
                     for_stack[for_ptr].end_val = end;
                     for_stack[for_ptr].step_val = step;
                     for_stack[for_ptr].start_stmt = exec_stmt;
-                    for_stack[for_ptr].start_ptr = ptr;
+                    // Sync ptr for the stack
+                    const char *temp_ptr = exec_stmt->raw_command;
+                    for(int k=0; k < ts.pos; k++) get_next_token(&temp_ptr);
+                    for_stack[for_ptr].start_ptr = temp_ptr;
                     for_ptr++;
                 } else {
                     report_runtime_error(ERR_OUT_OF_MEMORY);
@@ -2641,8 +2884,8 @@ void run_program() {
             }
             
             if (t.type == TOKEN_WHILE) {
+                double val = evaluate_expression_tok(&ts);
                 const char *cond_start = command_start_ptr;
-                double val = evaluate_expression(&ptr);
                 if (val != 0) {
                     // Push only if this WHILE is not already the current active loop
                     if (while_ptr == 0 || while_stack[while_ptr-1].stmt != exec_stmt || while_stack[while_ptr-1].ptr != cond_start) {
@@ -2659,25 +2902,19 @@ void run_program() {
                     if (while_ptr > 0 && while_stack[while_ptr-1].stmt == exec_stmt && while_stack[while_ptr-1].ptr == cond_start) {
                         while_ptr--;
                     }
-                    int nest = 1;
-                    while (nest > 0 && exec_stmt) {
-                        while (*ptr) {
-                            Token skip_t = get_next_token(&ptr); // Advance ptr
-                            if (skip_t.type == TOKEN_WHILE) nest++;
-                            else if (skip_t.type == TOKEN_WEND) nest--;
-                            if (nest == 0) {
-                                break;
-                            }
+                    int end_ts_pos = ts.pos; // Start searching from current position
+                    Statement *target_stmt = skip_to_matching_token(exec_stmt, end_ts_pos, TOKEN_WHILE, TOKEN_WEND, &end_ts_pos);
+
+                    if (target_stmt) {
+                        curr = target_stmt;
+                        if (end_ts_pos < curr->token_count) {
+                            resume_ptr = curr->tokens[end_ts_pos].start_ptr;
+                        } else {
+                            resume_ptr = NULL; // WEND was last token on line, advance to next line
                         }
-                        if (nest > 0) {
-                            exec_stmt = find_next_statement(exec_stmt->line_number);
-                            if (exec_stmt) {
-                                ptr = exec_stmt->raw_command;
-                            }
-                        }
+                    } else {
+                        report_runtime_error(ERR_WEND_WITHOUT_WHILE);
                     }
-                    curr = exec_stmt;
-                    resume_ptr = ptr;
                     jumped = 1;
                     break; // Exit command loop for the WHILE line
                 }
@@ -2699,29 +2936,35 @@ void run_program() {
 
             // Handle ON GOTO/GOSUB
             if (t.type == TOKEN_ON) {
-                const char *on_ptr = ptr; // Save ptr to check for ON ERROR
-                Token next_on = get_next_token(&on_ptr);
+                Token next_on = ts.tokens[ts.pos];
                 if (next_on.type == TOKEN_ERR || (next_on.type == TOKEN_IDENTIFIER && strcasecmp(next_on.text, "ERROR") == 0)) {
-                    ptr = command_start_ptr;
-                    interpret_line_at_ptr(&ptr, 0);
+                    const char *temp_ptr = command_start_ptr;
+                    interpret_line_at_ptr(&temp_ptr, 0);
+                    ptr = temp_ptr;
+                    // We need to advance ts.pos to match where interpret_line_at_ptr left off
+                    while(ts.pos < exec_stmt->token_count && ts.tokens[ts.pos].type != TOKEN_COLON && ts.tokens[ts.pos].type != TOKEN_EOF) ts.pos++;
                     continue;
                 }
 
-                int index = (int)evaluate_expression(&ptr);
-                Token jump_type = get_next_token(&ptr); // GOTO or GOSUB
+                int index = (int)evaluate_expression_tok(&ts);
+                Token jump_type = ts.tokens[ts.pos++]; // GOTO or GOSUB
                 int count = 1;
                 while (count < index) {
-                    get_next_token(&ptr); // skip number
-                    Token sep = get_next_token(&ptr);
+                    ts.pos++; // skip number
+                    Token sep = ts.tokens[ts.pos++];
                     if (sep.type != TOKEN_COMMA) { count = -1; break; }
                     count++;
                 }
                 if (count == index) {
-                    Token target = get_next_token(&ptr);
+                    Token target = ts.tokens[ts.pos++];
                     if (jump_type.type == TOKEN_GOSUB) {
                         if (gosub_ptr < 32) {
                             gosub_call_stack[gosub_ptr].stmt = exec_stmt;
-                            gosub_call_stack[gosub_ptr].ptr = ptr; // continue after the list
+                            // For return ptr, skip the rest of this command
+                            while(ts.pos < exec_stmt->token_count && ts.tokens[ts.pos].type != TOKEN_COLON) ts.pos++;
+                            const char *temp_ptr = exec_stmt->raw_command;
+                            for(int k=0; k < ts.pos; k++) get_next_token(&temp_ptr);
+                            gosub_call_stack[gosub_ptr].ptr = temp_ptr;
                             gosub_ptr++;
                             curr = find_line(target.int_val);
                             jumped = 1;
@@ -2734,16 +2977,18 @@ void run_program() {
                     }
                 } else {
                     // If index is out of bounds, BASICA continues to the next statement
-                    while (*ptr && *ptr != ':') get_next_token(&ptr);
+                    while (ts.pos < exec_stmt->token_count && ts.tokens[ts.pos].type != TOKEN_COLON) ts.pos++;
                 }
                 continue;
             }
             // Handle GOSUB
             if (t.type == TOKEN_GOSUB) {
-                Token target = get_next_token(&ptr);
+                Token target = ts.tokens[ts.pos++];
                 if (gosub_ptr < 32) {
                     gosub_call_stack[gosub_ptr].stmt = exec_stmt;
-                    gosub_call_stack[gosub_ptr].ptr = ptr;
+                    const char *temp_ptr = exec_stmt->raw_command;
+                    for(int k=0; k < ts.pos; k++) get_next_token(&temp_ptr);
+                    gosub_call_stack[gosub_ptr].ptr = temp_ptr;
                     gosub_ptr++;
                     curr = find_line(target.int_val);
                     jumped = 1;
@@ -2771,10 +3016,10 @@ void run_program() {
 
             // Handle NEXT
             if (t.type == TOKEN_NEXT) {
-                const char *next_var_ptr = ptr;
-                Token next_var = get_next_token(&ptr);
+                Token next_var = (ts.pos < exec_stmt->token_count) ? ts.tokens[ts.pos] : (Token){TOKEN_EOF, "", 0, 0, 0, NULL};
                 int f = -1;
                 if (next_var.type == TOKEN_IDENTIFIER) {
+                    ts.pos++;
                     int target_idx = find_variable(next_var.text);
                     for (int i = for_ptr - 1; i >= 0; i--) {
                         if (for_stack[i].var_idx == target_idx) {
@@ -2783,7 +3028,6 @@ void run_program() {
                         }
                     }
                 } else {
-                    ptr = next_var_ptr; // Rewind if not an identifier
                     if (for_ptr > 0) f = for_ptr - 1;
                 }
                 if (f != -1) {
@@ -2795,7 +3039,7 @@ void run_program() {
                         jumped = 1;
                         break;
                     } else {
-                        for_ptr = f;
+                        for_ptr = f; // Pop the loop from the stack
                     }
                 } else {
                     report_runtime_error(ERR_NEXT_WITHOUT_FOR);
@@ -2804,7 +3048,7 @@ void run_program() {
             }
             // Handle GOTO
             if (t.type == TOKEN_GOTO) {
-                Token target = get_next_token(&ptr);
+                Token target = ts.tokens[ts.pos++];
                 Statement *target_stmt = find_line(target.int_val);
                 if (!target_stmt) {
                     report_runtime_error(ERR_UNDEFINED_LINE_NUMBER);
@@ -2824,12 +3068,12 @@ void run_program() {
             if (t.type == TOKEN_ELSE) {
                 // Skip this ELSE clause - it means condition was true or we just finished THEN part
                 ptr = "";
+                ts.pos = exec_stmt->token_count;
                 continue;
             }
 
             if (t.type == TOKEN_RESUME) {
-                const char *saved = ptr;
-                Token rt = get_next_token(&ptr);
+                Token rt = (ts.pos < exec_stmt->token_count) ? ts.tokens[ts.pos++] : (Token){TOKEN_EOF, "", 0, 0, 0, NULL};
                 if (rt.type == TOKEN_NEXT) {
                     curr = error_stmt;
                     resume_ptr = error_next_ptr;
@@ -2837,9 +3081,8 @@ void run_program() {
                     curr = find_line(rt.int_val);
                     resume_ptr = NULL;
                 } else {
-                    ptr = saved;
                     curr = error_stmt;
-                    resume_ptr = command_start_ptr;
+                    resume_ptr = exec_stmt->raw_command; // Start of line
                 }
                 if (!curr) {
                     report_runtime_error(ERR_CANT_RESUME);
@@ -2853,6 +3096,9 @@ void run_program() {
             // then it's a regular command that interpret_line_at_ptr should handle.
             ptr = command_start_ptr;
             interpret_line_at_ptr(&ptr, 0);
+            // Advance TokenStream to match the processed string
+            while(ts.pos < exec_stmt->token_count && ts.tokens[ts.pos].type != TOKEN_COLON && ts.tokens[ts.pos].type != TOKEN_EOF) ts.pos++;
+            if (ts.pos < exec_stmt->token_count && ts.tokens[ts.pos].type == TOKEN_COLON) { ts.pos++; get_next_token(&ptr); }
         }
 
         if (runtime_error_occurred) {

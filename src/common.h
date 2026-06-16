@@ -45,11 +45,14 @@ typedef struct {
     int int_val;
     double double_val;
     int is_double;
+    const char *start_ptr;
 } Token;
 
 typedef struct Statement {
     int line_number;
     char raw_command[256];
+    Token *tokens;
+    int token_count;
     struct Statement *next;
 } Statement;
 
