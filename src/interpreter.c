@@ -74,7 +74,7 @@ void set_args(int argc, char **argv) {
     }
 }
 
-static int find_variable(const char *name);
+int find_variable(const char *name);
 static int is_string_var(const char *name);
 static int parse_array_index(const char **input, int var_idx);
 static int parse_array_index_tok(TokenStream *ts, int var_idx);
@@ -245,7 +245,6 @@ static int arrays_dimensioned = 0;
 static Statement *data_stmt = NULL;
 static const char *data_ptr = NULL;
 static int parse_string_expression(const char **input, char *out, int out_size);
-static int find_variable(const char *name);
 static int is_string_var(const char *name);
 static int parse_array_index(const char **input, int var_idx);
 static int parse_array_index_tok(TokenStream *ts, int var_idx);
@@ -501,7 +500,7 @@ static unsigned int hash_name(const char *name) {
     return hash % 2048;
 }
 
-static int find_variable(const char *name) {
+int find_variable(const char *name) {
     char normalized[64];
     int i;
     for (i = 0; i < 63 && name[i]; i++) {
@@ -1018,7 +1017,7 @@ static void execute_assignment(const char **input, Token var_token) {
     }
 }
 
-static void clear_variables(void) {
+static void clear_variables(int keep_registry) {
     for (int i = 0; i < var_count; i++) {
         if (vars[i].array) {
             free(vars[i].array);
@@ -1038,15 +1037,18 @@ static void clear_variables(void) {
         vars[i].array_size = 0;
         vars[i].num_dims = 0;
         vars[i].value = 0;
-        vars[i].name[0] = '\0';
+        if (!keep_registry) vars[i].name[0] = '\0';
     }
-    var_count = 0;
+    if (!keep_registry) {
+        var_count = 0;
+        for (int i = 0; i < 2048; i++) var_hash_table[i] = -1;
+    }
+
     user_function_count = 0;
     option_base = 0;
     option_base_set = 0;
     arrays_dimensioned = 0;
     for (int i = 0; i < 26; i++) default_type_map[i] = '!';
-    for (int i = 0; i < 2048; i++) var_hash_table[i] = -1;
 }
 
 void basic_output(const char *text) { // Made non-static
@@ -1088,7 +1090,8 @@ static double primary_tok(TokenStream *ts) {
         return t.double_val;
     }
     if (t.type == TOKEN_IDENTIFIER) {
-        int idx = find_variable(t.text);
+        int idx = t.var_idx;
+        if (idx == -1) idx = find_variable(t.text);
         int array_idx = parse_array_index_tok(ts, idx);
         if (array_idx >= 0) {
              return (vars[idx].array) ? vars[idx].array[array_idx] : 0;
@@ -1710,7 +1713,7 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
             run_program();
         } else if (t.type == TOKEN_NEW && is_direct) {
             clear_program();
-            clear_variables();
+            clear_variables(0); // Full reset for NEW
             clear_data_pointer();
             print_col = 0;
         } else if (t.type == TOKEN_BEEP) {
@@ -2758,7 +2761,7 @@ void interpret_line(const char *input, int is_direct) {
 }
 
 void run_program() {
-    clear_variables();
+    clear_variables(1); // Keep registry for RUN to maintain pre-tokenized indices
     stop_running = 0;
     runtime_error_occurred = 0;
     gosub_ptr = 0;
@@ -2793,15 +2796,15 @@ void run_program() {
         resume_ptr = NULL;
         
         int jumped = 0;
-        const char *ptr = exec_stmt->raw_command;
-        while (ts.pos < exec_stmt->token_count && !stop_running) {
+        while (ts.pos < exec_stmt->token_count && !stop_running && !jumped) {
             Token t = ts.tokens[ts.pos++];
-            if (t.type == TOKEN_EOF || t.type == TOKEN_COLON) continue;
 
-            ptr = t.start_ptr;
-            const char *command_start_ptr = ptr;
+            switch (t.type) {
+            case TOKEN_EOF:
+            case TOKEN_COLON:
+                continue;
 
-            if (t.type == TOKEN_IF) {
+            case TOKEN_IF: {
                 double cond = evaluate_expression_tok(&ts);
                 // Consume THEN or GOTO token
                 if (ts.pos < exec_stmt->token_count && (ts.tokens[ts.pos].type == TOKEN_THEN || ts.tokens[ts.pos].type == TOKEN_GOTO)) {
@@ -2825,7 +2828,7 @@ void run_program() {
             }
             
             // Handle FOR loop
-            if (t.type == TOKEN_FOR) {
+            case TOKEN_FOR: {
                 Token var = ts.tokens[ts.pos++];
                 Token eq = ts.tokens[ts.pos++];
                 if (eq.type != TOKEN_EQUALS) {
@@ -2841,7 +2844,8 @@ void run_program() {
                     step = evaluate_expression_tok(&ts);
                 }
                 
-                int idx = find_variable(var.text);
+                int idx = var.var_idx;
+                if (idx == -1) idx = find_variable(var.text);
                 vars[idx].value = start;
 
                 // BASICA check: If the loop should not execute at all
@@ -2883,7 +2887,8 @@ void run_program() {
                 continue;
             }
             
-            if (t.type == TOKEN_WHILE) {
+            case TOKEN_WHILE: {
+                const char *command_start_ptr = t.start_ptr;
                 double val = evaluate_expression_tok(&ts);
                 const char *cond_start = command_start_ptr;
                 if (val != 0) {
@@ -2922,7 +2927,7 @@ void run_program() {
             }
 
             // Handle WEND
-            if (t.type == TOKEN_WEND) {
+            case TOKEN_WEND:
                 if (while_ptr > 0) {
                     curr = while_stack[while_ptr-1].stmt;
                     resume_ptr = while_stack[while_ptr-1].ptr;
@@ -2932,15 +2937,14 @@ void run_program() {
                     report_runtime_error(ERR_WEND_WITHOUT_WHILE);
                     break;
                 }
-            }
 
             // Handle ON GOTO/GOSUB
-            if (t.type == TOKEN_ON) {
+            case TOKEN_ON: {
+                const char *command_start_ptr = t.start_ptr;
                 Token next_on = ts.tokens[ts.pos];
                 if (next_on.type == TOKEN_ERR || (next_on.type == TOKEN_IDENTIFIER && strcasecmp(next_on.text, "ERROR") == 0)) {
                     const char *temp_ptr = command_start_ptr;
                     interpret_line_at_ptr(&temp_ptr, 0);
-                    ptr = temp_ptr;
                     // We need to advance ts.pos to match where interpret_line_at_ptr left off
                     while(ts.pos < exec_stmt->token_count && ts.tokens[ts.pos].type != TOKEN_COLON && ts.tokens[ts.pos].type != TOKEN_EOF) ts.pos++;
                     continue;
@@ -2981,8 +2985,9 @@ void run_program() {
                 }
                 continue;
             }
+
             // Handle GOSUB
-            if (t.type == TOKEN_GOSUB) {
+            case TOKEN_GOSUB: {
                 Token target = ts.tokens[ts.pos++];
                 if (gosub_ptr < 32) {
                     gosub_call_stack[gosub_ptr].stmt = exec_stmt;
@@ -3001,7 +3006,7 @@ void run_program() {
             }
 
             // Handle RETURN
-            if (t.type == TOKEN_RETURN) {
+            case TOKEN_RETURN:
                 if (gosub_ptr > 0) {
                     gosub_ptr--;
                     curr = gosub_call_stack[gosub_ptr].stmt;
@@ -3012,15 +3017,15 @@ void run_program() {
                     report_runtime_error(ERR_RETURN_WITHOUT_GOSUB);
                     break;
                 }
-            }
 
             // Handle NEXT
-            if (t.type == TOKEN_NEXT) {
-                Token next_var = (ts.pos < exec_stmt->token_count) ? ts.tokens[ts.pos] : (Token){TOKEN_EOF, "", 0, 0, 0, NULL};
+            case TOKEN_NEXT: {
+                Token next_var = (ts.pos < exec_stmt->token_count) ? ts.tokens[ts.pos] : (Token){TOKEN_EOF, "", 0, 0, 0, NULL, 0};
                 int f = -1;
                 if (next_var.type == TOKEN_IDENTIFIER) {
                     ts.pos++;
-                    int target_idx = find_variable(next_var.text);
+                    int target_idx = next_var.var_idx;
+                    if (target_idx == -1) target_idx = find_variable(next_var.text);
                     for (int i = for_ptr - 1; i >= 0; i--) {
                         if (for_stack[i].var_idx == target_idx) {
                             f = i;
@@ -3046,8 +3051,9 @@ void run_program() {
                 }
                 break; // NEXT is a line-level control, break from inner loop to advance 'curr'
             }
+
             // Handle GOTO
-            if (t.type == TOKEN_GOTO) {
+            case TOKEN_GOTO: {
                 Token target = ts.tokens[ts.pos++];
                 Statement *target_stmt = find_line(target.int_val);
                 if (!target_stmt) {
@@ -3059,21 +3065,18 @@ void run_program() {
                 break;
             }
 
-            if (t.type == TOKEN_END) {
+            case TOKEN_END:
                 stop_running = 1;
-                continue;
-            }
+                break;
 
             // Handle stray ELSE token (should not execute if we got here)
-            if (t.type == TOKEN_ELSE) {
+            case TOKEN_ELSE:
                 // Skip this ELSE clause - it means condition was true or we just finished THEN part
-                ptr = "";
                 ts.pos = exec_stmt->token_count;
                 continue;
-            }
 
-            if (t.type == TOKEN_RESUME) {
-                Token rt = (ts.pos < exec_stmt->token_count) ? ts.tokens[ts.pos++] : (Token){TOKEN_EOF, "", 0, 0, 0, NULL};
+            case TOKEN_RESUME: {
+                Token rt = (ts.pos < exec_stmt->token_count) ? ts.tokens[ts.pos++] : (Token){TOKEN_EOF, "", 0, 0, 0, NULL, 0};
                 if (rt.type == TOKEN_NEXT) {
                     curr = error_stmt;
                     resume_ptr = error_next_ptr;
@@ -3092,19 +3095,62 @@ void run_program() {
                 break;
             }
 
-            // If it's not a control flow statement handled above,
-            // then it's a regular command that interpret_line_at_ptr should handle.
-            ptr = command_start_ptr;
-            interpret_line_at_ptr(&ptr, 0);
-            // Advance TokenStream to match the processed string
-            while(ts.pos < exec_stmt->token_count && ts.tokens[ts.pos].type != TOKEN_COLON && ts.tokens[ts.pos].type != TOKEN_EOF) ts.pos++;
-            if (ts.pos < exec_stmt->token_count && ts.tokens[ts.pos].type == TOKEN_COLON) { ts.pos++; get_next_token(&ptr); }
+            case TOKEN_LET:
+                t = ts.tokens[ts.pos++]; // Skip LET to get variable identifier
+                /* fall through */
+            case TOKEN_IDENTIFIER: {
+                // Direct handling of assignments
+                int idx = t.var_idx;
+                if (idx == -1) idx = find_variable(t.text);
+                int array_idx = parse_array_index_tok(&ts, idx);
+                if (ts.pos < exec_stmt->token_count && ts.tokens[ts.pos].type == TOKEN_EQUALS) {
+                    ts.pos++;
+                    if (is_string_var(t.text)) {
+                        const char *temp_ptr = ts.tokens[ts.pos].start_ptr;
+                        char value[256] = "";
+                        parse_string_expression(&temp_ptr, value, sizeof(value));
+                        set_string_variable(idx, array_idx, value);
+                        // Sync ts.pos
+                        while (ts.pos < exec_stmt->token_count && ts.tokens[ts.pos].start_ptr < temp_ptr) ts.pos++;
+                    } else {
+                        set_numeric_variable(idx, array_idx, evaluate_expression_tok(&ts));
+                    }
+                    continue;
+                }
+                // If not an assignment, fallback to interpret_line_at_ptr
+                ts.pos--; // Put identifier back
+                /* fall through */
+            }
+
+            default: {
+                // Fallback for complex commands
+                const char *command_start_ptr = t.start_ptr;
+                const char *temp_ptr = command_start_ptr;
+                interpret_line_at_ptr(&temp_ptr, 0);
+                // Advance TokenStream to match the processed string
+                while(ts.pos < exec_stmt->token_count && ts.tokens[ts.pos].start_ptr < temp_ptr) ts.pos++;
+                break;
+            }
+            }
         }
 
         if (runtime_error_occurred) {
             error_stmt = exec_stmt;
             error_ptr = exec_stmt->raw_command;
-            error_next_ptr = ptr;
+
+            // For RESUME NEXT to work correctly with the optimized loop, we find
+            // the start of the next command on the same line using the tokens.
+            int next_idx = ts.pos;
+            while (next_idx < exec_stmt->token_count && 
+                   exec_stmt->tokens[next_idx].type != TOKEN_COLON && 
+                   exec_stmt->tokens[next_idx].type != TOKEN_EOF) {
+                next_idx++;
+            }
+            if (next_idx < exec_stmt->token_count && exec_stmt->tokens[next_idx].type == TOKEN_COLON) {
+                error_next_ptr = exec_stmt->tokens[next_idx + 1].start_ptr;
+            } else {
+                error_next_ptr = exec_stmt->raw_command + strlen(exec_stmt->raw_command);
+            }
         }
 
         if (!stop_running && !jumped) {

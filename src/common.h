@@ -46,6 +46,7 @@ typedef struct {
     double double_val;
     int is_double;
     const char *start_ptr;
+    int var_idx;
 } Token;
 
 typedef struct Statement {

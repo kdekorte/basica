@@ -273,6 +273,17 @@ void tokenize_line(Statement *stmt) {
             stmt->tokens = realloc(stmt->tokens, capacity * sizeof(Token));
         }
         stmt->tokens[stmt->token_count++] = t;
+        
+        // Pre-resolve variable indices if possible
+        if (t.type == TOKEN_IDENTIFIER) {
+            int len = strlen(t.text);
+            char last = (len > 0) ? t.text[len - 1] : '\0';
+            if (last == '$' || last == '%' || last == '!' || last == '#') {
+                stmt->tokens[stmt->token_count - 1].var_idx = find_variable(t.text);
+            } else {
+                stmt->tokens[stmt->token_count - 1].var_idx = -1;
+            }
+        }
         if (t.type == TOKEN_EOF) break;
     }
 }
