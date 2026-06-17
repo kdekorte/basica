@@ -493,6 +493,9 @@ static int is_string_var(const char *name) {
     return 0;
 }
 
+// Forward declaration for is_string_token (used in parse_string_expression_tok)
+static int is_string_token(Token t);
+
 static unsigned int hash_name(const char *name) {
     unsigned int hash = 5381;
     int c;
@@ -689,6 +692,251 @@ static void append_string_value(char *dest, const char *src, int dest_size) {
     size_t used = strlen(dest);
     if (used + 1 >= (size_t)dest_size) return;
     strncat(dest, src, dest_size - 1 - used);
+}
+
+static int parse_string_expression_tok(TokenStream *ts, char *out, int out_size) {
+    out[0] = '\0';
+    int first = 1;
+
+    while (1) {
+        char term[256] = "";
+        Token t = ts->tokens[ts->pos];
+
+        if (t.type == TOKEN_CHR || t.type == TOKEN_TAB) {
+            ts->pos++; // chr/tab
+            ts->pos++; // (
+            double arg = evaluate_expression_tok(ts);
+            if (ts->tokens[ts->pos].type == TOKEN_RPAREN) ts->pos++; // )
+            if (t.type == TOKEN_CHR) {
+                term[0] = (unsigned char)((int)arg & 0xFF);
+                term[1] = '\0';
+            } else {
+                int w = (int)arg; if (w < 0) w = 0; if (w >= 255) w = 255;
+                memset(term, ' ', w); term[w] = '\0';
+            }
+        } else if (t.type == TOKEN_LEFT || t.type == TOKEN_RIGHT || t.type == TOKEN_MID) {
+            TokenType ft = t.type;
+            ts->pos++; // func
+            ts->pos++; // (
+            char base[256] = "";
+            parse_string_expression_tok(ts, base, sizeof(base));
+            if (ts->tokens[ts->pos].type == TOKEN_COMMA) ts->pos++; // ,
+            int n1 = (int)evaluate_expression_tok(ts);
+            int n2 = -1;
+            if (ft == TOKEN_MID) {
+                if (ts->tokens[ts->pos].type == TOKEN_COMMA) {
+                    ts->pos++;
+                    n2 = (int)evaluate_expression_tok(ts);
+                }
+            }
+            if (ts->tokens[ts->pos].type == TOKEN_RPAREN) ts->pos++; // )
+            int slen = (int)strlen(base);
+            if (ft == TOKEN_LEFT) {
+                int cnt = (n1 < 0) ? 0 : (n1 > slen ? slen : n1);
+                strncpy(term, base, cnt); term[cnt] = '\0';
+            } else if (ft == TOKEN_RIGHT) {
+                int cnt = (n1 < 0) ? 0 : (n1 > slen ? slen : n1);
+                strncpy(term, base + (slen - cnt > 0 ? slen - cnt : 0), cnt); term[cnt] = '\0';
+            } else { // MID
+                int start = n1 - 1; if (start < 0) start = 0;
+                if (start >= slen) term[0] = '\0';
+                else {
+                    int cnt = (n2 == -1) ? (slen - start) : n2;
+                    if (cnt < 0) cnt = 0; if (start + cnt > slen) cnt = slen - start;
+                    strncpy(term, base + start, cnt); term[cnt] = '\0';
+                }
+            }
+        } else if (t.type == TOKEN_SPACE || t.type == TOKEN_SPC) {
+            ts->pos++; // space/spc
+            ts->pos++; // (
+            int n = (int)evaluate_expression_tok(ts);
+            if (ts->tokens[ts->pos].type == TOKEN_RPAREN) ts->pos++; // )
+            if (n < 0) n = 0; if (n > 255) n = 255;
+            memset(term, ' ', n); term[n] = '\0';
+        } else if (t.type == TOKEN_STRING_FUNC) {
+            ts->pos++; // string$
+            ts->pos++; // (
+            int n = (int)evaluate_expression_tok(ts);
+            if (ts->tokens[ts->pos].type == TOKEN_COMMA) ts->pos++; // ,
+            char c = ' ';
+            char arg_buf[256] = "";
+            int is_str = is_string_token(ts->tokens[ts->pos]);
+            if (is_str) {
+                parse_string_expression_tok(ts, arg_buf, sizeof(arg_buf));
+                if (arg_buf[0]) c = arg_buf[0];
+            } else {
+                c = (char)evaluate_expression_tok(ts);
+            }
+            if (ts->tokens[ts->pos].type == TOKEN_RPAREN) ts->pos++; // )
+            if (n < 0) n = 0; if (n > 255) n = 255;
+            memset(term, c, n); term[n] = '\0';
+        } else if (t.type == TOKEN_COMMANDS) {
+            ts->pos++;
+            strncpy(term, internal_command_line, sizeof(term) - 1);
+            term[sizeof(term) - 1] = '\0';
+        } else if (t.type == TOKEN_ARGVS) {
+            ts->pos++; // argv$
+            ts->pos++; // (
+            int idx = (int)evaluate_expression_tok(ts);
+            if (ts->tokens[ts->pos].type == TOKEN_RPAREN) ts->pos++; // )
+            if (idx >= 0 && idx < internal_argc && internal_argv) {
+                strncpy(term, internal_argv[idx], sizeof(term) - 1);
+                term[sizeof(term) - 1] = '\0';
+            }
+        } else if (t.type == TOKEN_GETS) {
+            ts->pos++; // get$
+            ts->pos++; // (
+            int fnum = -1;
+            if (ts->tokens[ts->pos].type == TOKEN_HASH) ts->pos++;
+            fnum = (int)evaluate_expression_tok(ts);
+            if (ts->tokens[ts->pos].type == TOKEN_COMMA) ts->pos++; // ,
+            int rec = (int)evaluate_expression_tok(ts);
+            if (ts->tokens[ts->pos].type == TOKEN_COMMA) ts->pos++; // ,
+            int len = (int)evaluate_expression_tok(ts);
+            if (ts->tokens[ts->pos].type == TOKEN_RPAREN) ts->pos++; // )
+            if (fnum < 1 || fnum >= 16 || !file_handles[fnum]) {
+                report_runtime_error(ERR_BAD_FILE_NUMBER);
+                return 0;
+            }
+            long offset = (long)((rec - 1) * len);
+            fseek(file_handles[fnum], offset, SEEK_SET);
+            char buf[512];
+            size_t r = fread(buf, 1, len, file_handles[fnum]);
+            if (r < (size_t)len) {
+                for (size_t i = r; i < (size_t)len; i++) buf[i] = ' ';
+            }
+            buf[len] = '\0';
+            int trim = len - 1;
+            while (trim >= 0 && buf[trim] == ' ') { buf[trim] = '\0'; trim--; }
+            strncpy(term, buf, sizeof(term) - 1);
+            term[sizeof(term) - 1] = '\0';
+        } else if (t.type == TOKEN_INKEY) {
+            ts->pos++;
+            if (graphics_is_active()) {
+                update_graphics();
+                int c = get_graphics_char();
+                if (c) {
+                    term[0] = (char)c;
+                    term[1] = '\0';
+                }
+            } else {
+                int c = get_stdin_char();
+                if (c) {
+                    term[0] = (char)c;
+                    term[1] = '\0';
+                }
+            }
+        } else if (t.type == TOKEN_UCASE || t.type == TOKEN_LCASE || t.type == TOKEN_TRIM || t.type == TOKEN_LTRIM || t.type == TOKEN_RTRIM) {
+            TokenType ft = t.type;
+            ts->pos++; // func
+            ts->pos++; // (
+            char base[256] = "";
+            parse_string_expression_tok(ts, base, sizeof(base));
+            if (ts->tokens[ts->pos].type == TOKEN_RPAREN) ts->pos++; // )
+            if (ft == TOKEN_UCASE) {
+                for (int i = 0; base[i]; i++) base[i] = toupper((unsigned char)base[i]);
+            } else if (ft == TOKEN_LCASE) {
+                for (int i = 0; base[i]; i++) base[i] = tolower((unsigned char)base[i]);
+            } else if (ft == TOKEN_TRIM) {
+                int start = 0, end = (int)strlen(base) - 1;
+                while (start <= end && isspace((unsigned char)base[start])) start++;
+                while (end >= start && isspace((unsigned char)base[end])) end--;
+                int len = (end >= start) ? (end - start + 1) : 0;
+                memmove(base, base + start, len);
+                base[len] = '\0';
+            } else if (ft == TOKEN_LTRIM) {
+                int start = 0;
+                while (base[start] && isspace((unsigned char)base[start])) start++;
+                if (start > 0) {
+                    int len = (int)strlen(base + start);
+                    memmove(base, base + start, len + 1);
+                }
+            } else if (ft == TOKEN_RTRIM) {
+                int end = (int)strlen(base) - 1;
+                while (end >= 0 && isspace((unsigned char)base[end])) end--;
+                base[end + 1] = '\0';
+            }
+            strncpy(term, base, sizeof(term) - 1);
+            term[sizeof(term) - 1] = '\0';
+        } else if (t.type == TOKEN_HEX || t.type == TOKEN_OCT) {
+            ts->pos++; // func
+            ts->pos++; // (
+            double val = evaluate_expression_tok(ts);
+            if (ts->tokens[ts->pos].type == TOKEN_RPAREN) ts->pos++; // )
+            int intval = (int)val;
+            if (t.type == TOKEN_HEX) snprintf(term, sizeof(term), "%X", intval);
+            else snprintf(term, sizeof(term), "%o", intval);
+        } else if (t.type == TOKEN_TIME || t.type == TOKEN_DATE) {
+            ts->pos++;
+            time_t rawtime;
+            struct tm *timeinfo;
+            time(&rawtime);
+            timeinfo = localtime(&rawtime);
+            if (t.type == TOKEN_TIME) {
+                strftime(term, sizeof(term), "%H:%M:%S", timeinfo);
+            } else {
+                strftime(term, sizeof(term), "%m-%d-%Y", timeinfo);
+            }
+        } else if (t.type == TOKEN_ENVIRON) {
+            ts->pos++; // environ$
+            ts->pos++; // (
+            char arg_val[256] = "";
+            int is_str = is_string_token(ts->tokens[ts->pos]);
+            if (is_str) {
+                parse_string_expression_tok(ts, arg_val, sizeof(arg_val));
+                char *ev = getenv(arg_val);
+                if (ev) strncpy(term, ev, sizeof(term)-1);
+            } else {
+                double val = evaluate_expression_tok(ts);
+                int idx = (int)val;
+                extern char **environ;
+                if (environ && idx > 0) {
+                    int count = 1;
+                    for (char **e = environ; *e; e++, count++) {
+                        if (count == idx) {
+                            strncpy(term, *e, sizeof(term)-1);
+                            break;
+                        }
+                    }
+                }
+            }
+            if (ts->tokens[ts->pos].type == TOKEN_RPAREN) ts->pos++; // )
+        } else if (t.type == TOKEN_STR) {
+            ts->pos++; // str$
+            ts->pos++; // (
+            double val = evaluate_expression_tok(ts);
+            if (ts->tokens[ts->pos].type == TOKEN_RPAREN) ts->pos++; // )
+            if (val >= 0) snprintf(term, sizeof(term), " %g", val);
+            else snprintf(term, sizeof(term), "%g", val);
+        } else if (t.type == TOKEN_STRING) {
+            strncpy(term, t.text, sizeof(term) - 1);
+            ts->pos++;
+        } else if (t.type == TOKEN_IDENTIFIER && is_string_var(t.text)) {
+            int idx = t.var_idx;
+            if (idx == -1) idx = find_variable(t.text);
+            ts->pos++;
+            int array_idx = parse_array_index_tok(ts, idx);
+            char temp[256] = "";
+            get_string_variable_value(idx, array_idx, temp, sizeof(temp));
+            strncpy(term, temp, sizeof(term) - 1);
+        } else {
+            if (first) {
+                double val = evaluate_expression_tok(ts);
+                snprintf(out, out_size, "%g", val);
+                return 0;
+            }
+            break;
+        }
+
+        append_string_value(out, term, out_size);
+        first = 0;
+
+        if (ts->tokens[ts->pos].type != TOKEN_PLUS) {
+            break;
+        }
+        ts->pos++; // consume '+'
+    }
+    return 1;
 }
 
 static int parse_string_expression(const char **input, char *out, int out_size) {
@@ -1089,28 +1337,167 @@ static double primary_tok(TokenStream *ts) {
         if (t.is_double) last_expression_is_double = 1;
         return t.double_val;
     }
+    if (t.type == TOKEN_ARGC) return (double)internal_argc;
     if (t.type == TOKEN_IDENTIFIER) {
+        if (strcasecmp(t.text, "ERR") == 0) return (double)last_runtime_error_code;
+        if (strcasecmp(t.text, "ERL") == 0) return (double)last_runtime_error_line;
+
+        if (strncasecmp(t.text, "FN", 2) == 0) {
+            if (ts->tokens[ts->pos].type == TOKEN_LPAREN) {
+                ts->pos++; // (
+                for (int i = 0; i < user_function_count; i++) {
+                    if (strcasecmp(user_functions[i].name, t.text) == 0) {
+                        double arg_val = evaluate_expression_tok(ts);
+                        if (ts->tokens[ts->pos].type == TOKEN_RPAREN) ts->pos++; // )
+                        
+                        int p_idx = find_variable(user_functions[i].param_name);
+                        double old_val = vars[p_idx].value;
+                        vars[p_idx].value = arg_val;
+                        const char *expr_ptr = user_functions[i].expression;
+                        double result = evaluate_expression(&expr_ptr);
+                        vars[p_idx].value = old_val;
+                        return result;
+                    }
+                }
+            }
+        }
+
         int idx = t.var_idx;
         if (idx == -1) idx = find_variable(t.text);
+        
+        if (idx != -1) {
+            const char *v_name = vars[idx].name;
+            if (v_name[strlen(v_name)-1] == '#') last_expression_is_double = 1;
+        }
+
         int array_idx = parse_array_index_tok(ts, idx);
         if (array_idx >= 0) {
-             return (vars[idx].array) ? vars[idx].array[array_idx] : 0;
+             return (vars[idx].array && array_idx < vars[idx].array_size) ? vars[idx].array[array_idx] : 0;
         }
-        return vars[idx].value;
+        return (idx != -1) ? vars[idx].value : 0;
     }
     if (t.type == TOKEN_LPAREN) {
         double val = evaluate_expression_tok(ts);
         if (ts->tokens[ts->pos].type == TOKEN_RPAREN) ts->pos++;
         return val;
     }
-    // Fallback for complex functions not yet in tok-path
-    ts->pos--;
-    const char *ptr = ts->tokens[ts->pos].start_ptr;
-    double val = primary(&ptr); 
-    while (ts->tokens[ts->pos].type != TOKEN_EOF && ts->tokens[ts->pos].start_ptr < ptr) {
-        ts->pos++;
+
+    if ((t.type >= TOKEN_ABS && t.type <= TOKEN_SGN) || t.type == TOKEN_EOF_FUNC || t.type == TOKEN_TIMER || t.type == TOKEN_KEY || t.type == TOKEN_ASC || t.type == TOKEN_LEN || t.type == TOKEN_INSTR || t.type == TOKEN_VAL || t.type == TOKEN_PEEK || t.type == TOKEN_VARPTR || t.type == TOKEN_LOF || t.type == TOKEN_LOC) {
+        TokenType ft = t.type;
+        int has_arg = 0;
+        double arg = 0;
+
+        if (ts->tokens[ts->pos].type == TOKEN_LPAREN) {
+            ts->pos++;
+            has_arg = 1;
+            if (ft == TOKEN_VARPTR) {
+                Token var_tok = ts->tokens[ts->pos++];
+                int var_idx = -1;
+                int array_idx = -1;
+                if (var_tok.type == TOKEN_IDENTIFIER) {
+                    var_idx = var_tok.var_idx;
+                    if (var_idx == -1) var_idx = find_variable(var_tok.text);
+                    array_idx = parse_array_index_tok(ts, var_idx);
+                }
+                if (ts->tokens[ts->pos].type == TOKEN_RPAREN) ts->pos++;
+                if (var_idx < 0) return 0;
+                if (array_idx >= 0) return 61440.0 + var_idx * 256.0 + array_idx;
+                return 61440.0 + var_idx * 256.0;
+            }
+            if (ft == TOKEN_ASC || ft == TOKEN_LEN || ft == TOKEN_VAL) {
+                char buf[256] = "";
+                parse_string_expression_tok(ts, buf, sizeof(buf));
+                if (ts->tokens[ts->pos].type == TOKEN_RPAREN) ts->pos++;
+                if (ft == TOKEN_ASC) return buf[0] ? (double)(unsigned char)buf[0] : 0;
+                if (ft == TOKEN_LEN) return (double)strlen(buf);
+                if (ft == TOKEN_VAL) return atof(buf);
+            }
+            if (ft == TOKEN_INSTR) {
+                char s1[256] = "", s2[256] = "";
+                double start = 1.0;
+                Token first_arg = ts->tokens[ts->pos];
+                
+                if (first_arg.type == TOKEN_NUMBER || (first_arg.type == TOKEN_IDENTIFIER && !is_string_var(first_arg.text))) {
+                    start = evaluate_expression_tok(ts);
+                    if (ts->tokens[ts->pos].type == TOKEN_COMMA) ts->pos++;
+                }
+                
+                parse_string_expression_tok(ts, s1, sizeof(s1));
+                if (ts->tokens[ts->pos].type == TOKEN_COMMA) ts->pos++;
+                parse_string_expression_tok(ts, s2, sizeof(s2));
+                if (ts->tokens[ts->pos].type == TOKEN_RPAREN) ts->pos++;
+                
+                if (start < 1) start = 1;
+                if (start > (double)strlen(s1)) return 0;
+                char *p = strstr(s1 + (int)start - 1, s2);
+                return p ? (double)(p - s1 + 1) : 0;
+            }
+            arg = evaluate_expression_tok(ts);
+            if (ts->tokens[ts->pos].type == TOKEN_RPAREN) ts->pos++;
+        }
+
+        switch((int)ft) {
+            case TOKEN_ABS: return fabs(arg);
+            case TOKEN_SQR: return sqrt(arg);
+            case TOKEN_SIN: return sin(arg);
+            case TOKEN_COS: return cos(arg);
+            case TOKEN_TAN: return tan(arg);
+            case TOKEN_ATN: return atan(arg);
+            case TOKEN_EXP: return exp(arg);
+            case TOKEN_LOG: return log(arg);
+            case TOKEN_INT: return floor(arg);
+            case TOKEN_FIX: return (double)(long)arg;
+            case TOKEN_SGN: return (arg > 0) - (arg < 0);
+            case TOKEN_EOF_FUNC: {
+                int fnum = (int)arg;
+                if (fnum < 1 || fnum >= 16 || !file_handles[fnum]) {
+                    report_runtime_error(ERR_BAD_FILE_NUMBER);
+                    return 0;
+                }
+                int c = fgetc(file_handles[fnum]);
+                if (c == EOF) return 1;
+                ungetc(c, file_handles[fnum]);
+                return 0;
+            }
+            case TOKEN_LOF: {
+                int fnum = (int)arg;
+                if (fnum < 1 || fnum >= 16 || !file_handles[fnum]) {
+                    report_runtime_error(ERR_BAD_FILE_NUMBER);
+                    return 0;
+                }
+                long cur = ftell(file_handles[fnum]);
+                fseek(file_handles[fnum], 0, SEEK_END);
+                long size = ftell(file_handles[fnum]);
+                fseek(file_handles[fnum], cur, SEEK_SET);
+                return (double)size;
+            }
+            case TOKEN_LOC: {
+                int fnum = (int)arg;
+                if (fnum < 1 || fnum >= 16 || !file_handles[fnum]) {
+                    report_runtime_error(ERR_BAD_FILE_NUMBER);
+                    return 0;
+                }
+                return (double)ftell(file_handles[fnum]);
+            }
+            case TOKEN_TIMER: return (double)clock() / CLOCKS_PER_SEC;
+            case TOKEN_KEY: return (double)get_graphics_key();
+            case TOKEN_PEEK: {
+                int addr = (int)arg;
+                if (addr < 0 || addr >= 65536) return 0;
+                return basica_memory[addr];
+            }
+            case TOKEN_RND:
+                if (has_arg && arg < 0) {
+                    rnd_seed = (unsigned int)(-(long)arg);
+                    return basica_rnd_next();
+                }
+                if (has_arg && arg == 0) return last_rnd_value;
+                return basica_rnd_next();
+            default: return 0;
+        }
     }
-    return val;
+
+    return 0;
 }
 
 static double unary_tok(TokenStream *ts) {
