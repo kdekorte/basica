@@ -109,6 +109,7 @@ TESTS=(
   "tests/nested_paren"
   "tests/def_types"
   "tests/auto_screenshot"
+  "tests/graphics_primitives"
 )
 
 for t in "${TESTS[@]}"; do
@@ -128,6 +129,14 @@ for t in "${TESTS[@]}"; do
       exit 2
     fi
     rm -f tests/auto_out.png
+  elif [ "$t" = "tests/graphics_primitives" ]; then
+    rm -f tests/graphics_primitives.png
+    OUT=$(./basica --headless "$t.bas" 2>&1)
+    if [ ! -f tests/graphics_primitives.png ]; then
+      echo "$t FAIL: screenshot file tests/graphics_primitives.png not found"
+      exit 2
+    fi
+    rm -f tests/graphics_primitives.png
   else
     OUT=$(./basica "$t.bas" 2>&1)
   fi

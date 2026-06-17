@@ -21,7 +21,6 @@
 ## Graphics
 
 - Implement `WINDOW` and `VIEW` for custom coordinate mapping and viewports.
-- Add screenshot or pixel-buffer tests for graphics primitives.
 
 ## Testing and project hygiene
 

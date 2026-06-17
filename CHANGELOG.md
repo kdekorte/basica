@@ -6,6 +6,7 @@ All notable changes to this project are recorded in this file.
 
 - **Headless Graphics Mode**: Add `--headless` command-line option to run graphics and screenshots headlessly (uses standard POSIX dummy video driver and hidden window). (commit ca8d271)
 - **Performance Improvements**: Refactored interpreter engine and variable lookups to implement a 2x performance increase. (commit c874659)
+- **Graphics Primitive & Pixel Buffer Testing**: Added test coverage validating graphics primitives (`PSET`, `LINE`, `CIRCLE`), virtual screen buffer operations (`GET`/`PUT` to arrays), and automatic `SCREENSHOT` generation.
 
 ## 2026-06-16
 
