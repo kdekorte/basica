@@ -2,6 +2,7 @@
 #define GRAPHICS_H
 
 int init_graphics();
+void set_graphics_headless(int headless);
 void update_graphics();
 void close_graphics();
 void set_screen_mode(int mode);

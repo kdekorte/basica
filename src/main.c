@@ -15,6 +15,7 @@ static void print_usage(const char *prog) {
     printf("Usage: %s [options] [program.bas]\n", prog);
     printf("Options:\n");
     printf("  -w, --window     enable graphics window\n");
+    printf("  --headless       enable headless graphics mode (virtual framebuffer without window)\n");
     printf("  -q, --quiet      suppress startup header and REPL prompts\n");
     printf("  -x, --exit-on-finish exit immediately after program finishes (only with -w)\n");
     printf("  -v, --version    show version information\n");
@@ -83,6 +84,7 @@ void run_file(const char *filename) {
 
 int main(int argc, char **argv) {
     int use_window = 0;
+    int headless = 0;
     const char *filename = NULL;
 
     // Handle Ctrl+C in terminal
@@ -93,6 +95,10 @@ int main(int argc, char **argv) {
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--window") == 0) {
             use_window = 1;
+        } else if (strcmp(argv[i], "--headless") == 0) {
+            use_window = 1;
+            headless = 1;
+            exit_on_finish = 1;
         } else if (strcmp(argv[i], "-q") == 0 || strcmp(argv[i], "--quiet") == 0) {
             quiet_mode = 1;
         } else if (strcmp(argv[i], "-x") == 0 || strcmp(argv[i], "--exit-on-finish") == 0) {
@@ -112,6 +118,9 @@ int main(int argc, char **argv) {
     }
 
     if (use_window) {
+        if (headless) {
+            set_graphics_headless(1);
+        }
         if (!init_graphics()) {
             fprintf(stderr, "Failed to initialize graphics window\n");
             return 1;

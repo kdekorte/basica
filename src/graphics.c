@@ -280,17 +280,30 @@ void set_text_cursor(int row, int col) {
     cursor_y = (row - 1) * current_row_height;
 }
 
+static int headless_mode = 0;
+
+void set_graphics_headless(int headless) {
+    headless_mode = headless;
+}
+
 int graphics_is_active() {
     return window != NULL;
 }
 
 int init_graphics() {
     if (window) return 1;
+    if (headless_mode) {
+        setenv("SDL_VIDEODRIVER", "dummy", 1);
+    }
     if (!SDL_Init(SDL_INIT_VIDEO)) return 0;
     if (!TTF_Init()) return 0;
     
     // Create a 4:3 Window (1024x768)
-    window = SDL_CreateWindow("BASICA Virtual Framebuffer", 1024, 768, 0);
+    SDL_WindowFlags flags = 0;
+    if (headless_mode) {
+        flags |= SDL_WINDOW_HIDDEN;
+    }
+    window = SDL_CreateWindow("BASICA Virtual Framebuffer", 1024, 768, flags);
         
     if (!window) return 0;
     renderer = SDL_CreateRenderer(window, NULL); // Use default renderer flags

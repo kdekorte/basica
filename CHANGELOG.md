@@ -4,6 +4,10 @@ All notable changes to this project are recorded in this file.
 
 Generated: 2026-06-10
 
+## 2026-06-17
+
+- Add `--headless` command-line option to enable headless graphics mode (virtual framebuffer using dummy video driver, without displaying a window).
+
 ## 2026-06-10
 
 - Add `-x` / `--exit-on-finish` command-line option to exit immediately after program completion when in graphics mode.
