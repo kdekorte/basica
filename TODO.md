@@ -16,7 +16,6 @@
 
 - Support `FIELD`, `LSET`, and `RSET` for formal Random Access File record handling.
 - Add support for `CONT`, `STOP`, and better direct-mode behavior.
-- Add broader tests for `PEEK`, `POKE`, and `VARPTR` edge cases.
 - Implement `WAIT` for port monitoring (or a simulated equivalent).
 
 ## Graphics

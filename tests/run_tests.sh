@@ -122,7 +122,7 @@ for t in "${TESTS[@]}"; do
 
   if [ "$t" = "tests/auto_screenshot" ]; then
     rm -f tests/auto_out.png
-    OUT=$(./basica -w -x "$t.bas" 2>&1)
+    OUT=$(./basica --headless "$t.bas" 2>&1)
     if [ ! -f tests/auto_out.png ]; then
       echo "$t FAIL: screenshot file tests/auto_out.png not found"
       exit 2

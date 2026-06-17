@@ -41,6 +41,12 @@ Exit immediately after finish in graphics mode (for automation/screenshots):
 ./basica -w -x demo/hello.bas
 ```
 
+Run in headless graphics mode (virtual framebuffer without showing a window, e.g. for CI/CD tests):
+
+```sh
+./basica --headless demo/hello.bas
+```
+
 Show help:
 
 ```sh
