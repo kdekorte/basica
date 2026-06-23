@@ -106,6 +106,7 @@ TESTS=(
   "tests/shebang_test"
   "tests/bitwise"
   "tests/bitwise_control"
+  "tests/on_timer"
   "tests/nested_paren"
   "tests/def_types"
   "tests/auto_screenshot"

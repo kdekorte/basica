@@ -29,7 +29,7 @@
 - Add a developer note documenting how to add a new BASIC keyword.
 
 ## UX and documentation
-- Implement event trapping: `ON KEY(n)`, `ON TIMER(n)`, and `ON STRIG(n)`.
+- Implement `ON STRIG(n)` trapping and add a demo/test for it.
 - Add a command-line option to dump supported commands.
 - Add a command support matrix: supported, partial, planned.
 - Add examples for file I/O, graphics, sound, arrays, and error handling.

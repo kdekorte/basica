@@ -5,6 +5,7 @@
 #include <signal.h>
 #include <math.h>
 #include <time.h>
+#include <sys/time.h>
 #include <glob.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -545,13 +546,156 @@ int find_variable(const char *name) {
     return -1;
 }
 
+typedef enum {
+    EVENT_NONE = 0,
+    EVENT_KEY,
+    EVENT_TIMER,
+    EVENT_STRIG
+} TrappedEventType;
+
 typedef struct {
     Statement *stmt;
     const char *ptr;
+    TrappedEventType event_type;
+    int event_index;
 } Subroutine;
 
 static Subroutine gosub_call_stack[32];
 static int gosub_ptr = 0;
+
+// Event Trapping globals
+static int on_key_line[32];
+static int key_state[32]; // 0=OFF, 1=ON, 2=STOP
+static int key_event_pending[32];
+static int key_event_active[32];
+
+static int on_timer_line = 0;
+static double timer_interval = 0.0;
+static int timer_state = 0; // 0=OFF, 1=ON, 2=STOP
+static int timer_pending = 0;
+static int timer_event_active = 0;
+static double timer_last_trigger_time = 0.0;
+
+static int on_strig_line[8];
+static int strig_state = 0; // 0=OFF, 1=ON, 2=STOP
+static int strig_event_pending[8];
+static int strig_event_active[8];
+static int strig_button_pressed_since[8];
+static int strig_button_currently_pressed[8];
+
+static double wall_time_seconds(void) {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (double)tv.tv_sec + (double)tv.tv_usec / 1000000.0;
+}
+
+void basica_trigger_key_event(int key_idx) {
+    if (key_idx >= 1 && key_idx < 32) {
+        if (key_state[key_idx] == 1 || key_state[key_idx] == 2) {
+            key_event_pending[key_idx] = 1;
+        }
+    }
+}
+
+static int dispatch_pending_timer_event(Statement *exec_stmt, TokenStream *ts, Statement **curr, const char **resume_ptr) {
+    if (timer_state == 0 || timer_pending == 0 || timer_event_active || on_timer_line == 0) return 0;
+
+    Statement *target = find_line(on_timer_line);
+    if (!target) {
+        report_runtime_error(ERR_UNDEFINED_LINE_NUMBER);
+        timer_pending = 0;
+        timer_state = 0;
+        return 1;
+    }
+    if (gosub_ptr >= 32) {
+        report_runtime_error(ERR_OUT_OF_MEMORY);
+        timer_pending = 0;
+        return 1;
+    }
+
+    gosub_call_stack[gosub_ptr].stmt = exec_stmt;
+    if (ts->pos < exec_stmt->token_count) {
+        gosub_call_stack[gosub_ptr].ptr = exec_stmt->tokens[ts->pos].start_ptr;
+    } else {
+        gosub_call_stack[gosub_ptr].ptr = exec_stmt->raw_command + strlen(exec_stmt->raw_command);
+    }
+    gosub_call_stack[gosub_ptr].event_type = EVENT_TIMER;
+    gosub_call_stack[gosub_ptr].event_index = 0;
+    gosub_ptr++;
+
+    timer_pending = 0;
+    timer_event_active = 1;
+    *curr = target;
+    *resume_ptr = NULL;
+    return 1;
+}
+
+static int dispatch_pending_key_event(Statement *exec_stmt, TokenStream *ts, Statement **curr, const char **resume_ptr) {
+    for (int k = 1; k < 32; k++) {
+        if (!key_event_pending[k]) continue;
+        if ((key_state[k] != 1 && key_state[k] != 2) || key_event_active[k] || on_key_line[k] == 0) continue;
+
+        Statement *target = find_line(on_key_line[k]);
+        if (!target) {
+            report_runtime_error(ERR_UNDEFINED_LINE_NUMBER);
+            key_event_pending[k] = 0;
+            return 1;
+        }
+        if (gosub_ptr >= 32) {
+            report_runtime_error(ERR_OUT_OF_MEMORY);
+            key_event_pending[k] = 0;
+            return 1;
+        }
+
+        gosub_call_stack[gosub_ptr].stmt = exec_stmt;
+        if (ts->pos < exec_stmt->token_count) {
+            gosub_call_stack[gosub_ptr].ptr = exec_stmt->tokens[ts->pos].start_ptr;
+        } else {
+            gosub_call_stack[gosub_ptr].ptr = exec_stmt->raw_command + strlen(exec_stmt->raw_command);
+        }
+        gosub_call_stack[gosub_ptr].event_type = EVENT_KEY;
+        gosub_call_stack[gosub_ptr].event_index = k;
+        gosub_ptr++;
+
+        key_event_pending[k] = 0;
+        key_event_active[k] = 1;
+        *curr = target;
+        *resume_ptr = NULL;
+        return 1;
+    }
+    return 0;
+}
+
+static void maybe_queue_timer_event(void) {
+    if (timer_state == 0 || on_timer_line == 0 || timer_interval <= 0.0 || timer_pending || timer_event_active) return;
+
+    if (!find_line(on_timer_line)) {
+        report_runtime_error(ERR_UNDEFINED_LINE_NUMBER);
+        timer_state = 0;
+        timer_pending = 0;
+        return;
+    }
+
+    double now = wall_time_seconds();
+    if (now - timer_last_trigger_time >= timer_interval) {
+        timer_pending = 1;
+        timer_last_trigger_time = now;
+    }
+}
+
+void basica_trigger_strig_event(int strig_idx, int pressed) {
+    if (strig_idx >= 0 && strig_idx < 8) {
+        if (pressed) {
+            strig_button_pressed_since[strig_idx] = 1;
+            strig_button_currently_pressed[strig_idx] = 1;
+            if (strig_state == 1 || strig_state == 2) {
+                strig_event_pending[strig_idx] = 1;
+            }
+        } else {
+            strig_button_currently_pressed[strig_idx] = 0;
+        }
+    }
+}
 
 typedef struct {
     int var_idx;
@@ -1382,7 +1526,7 @@ static double primary_tok(TokenStream *ts) {
         return val;
     }
 
-    if ((t.type >= TOKEN_ABS && t.type <= TOKEN_SGN) || t.type == TOKEN_EOF_FUNC || t.type == TOKEN_TIMER || t.type == TOKEN_KEY || t.type == TOKEN_ASC || t.type == TOKEN_LEN || t.type == TOKEN_INSTR || t.type == TOKEN_VAL || t.type == TOKEN_PEEK || t.type == TOKEN_VARPTR || t.type == TOKEN_LOF || t.type == TOKEN_LOC) {
+    if ((t.type >= TOKEN_ABS && t.type <= TOKEN_SGN) || t.type == TOKEN_EOF_FUNC || t.type == TOKEN_TIMER || t.type == TOKEN_KEY || t.type == TOKEN_STRIG || t.type == TOKEN_ASC || t.type == TOKEN_LEN || t.type == TOKEN_INSTR || t.type == TOKEN_VAL || t.type == TOKEN_PEEK || t.type == TOKEN_VARPTR || t.type == TOKEN_LOF || t.type == TOKEN_LOC) {
         TokenType ft = t.type;
         int has_arg = 0;
         double arg = 0;
@@ -1413,30 +1557,27 @@ static double primary_tok(TokenStream *ts) {
                 if (ft == TOKEN_VAL) return atof(buf);
             }
             if (ft == TOKEN_INSTR) {
-                char s1[256] = "", s2[256] = "";
-                double start = 1.0;
-                Token first_arg = ts->tokens[ts->pos];
-                
-                if (first_arg.type == TOKEN_NUMBER || (first_arg.type == TOKEN_IDENTIFIER && !is_string_var(first_arg.text))) {
-                    start = evaluate_expression_tok(ts);
-                    if (ts->tokens[ts->pos].type == TOKEN_COMMA) ts->pos++;
+                char s1[256] = "";
+                char s2[256] = "";
+                int start = 1;
+                Token next = ts->tokens[ts->pos];
+                if (next.type != TOKEN_STRING && next.type != TOKEN_IDENTIFIER) {
+                    start = (int)evaluate_expression_tok(ts);
+                    ts->pos++; // comma
                 }
-                
                 parse_string_expression_tok(ts, s1, sizeof(s1));
-                if (ts->tokens[ts->pos].type == TOKEN_COMMA) ts->pos++;
+                ts->pos++; // comma
                 parse_string_expression_tok(ts, s2, sizeof(s2));
                 if (ts->tokens[ts->pos].type == TOKEN_RPAREN) ts->pos++;
-                
-                if (start < 1) start = 1;
-                if (start > (double)strlen(s1)) return 0;
-                char *p = strstr(s1 + (int)start - 1, s2);
-                return p ? (double)(p - s1 + 1) : 0;
+                if (start < 1) return 0;
+                char *pos = strstr(s1 + start - 1, s2);
+                return pos ? (double)(pos - s1 + 1) : 0;
             }
             arg = evaluate_expression_tok(ts);
             if (ts->tokens[ts->pos].type == TOKEN_RPAREN) ts->pos++;
         }
 
-        switch((int)ft) {
+        switch (ft) {
             case TOKEN_ABS: return fabs(arg);
             case TOKEN_SQR: return sqrt(arg);
             case TOKEN_SIN: return sin(arg);
@@ -1446,7 +1587,7 @@ static double primary_tok(TokenStream *ts) {
             case TOKEN_EXP: return exp(arg);
             case TOKEN_LOG: return log(arg);
             case TOKEN_INT: return floor(arg);
-            case TOKEN_FIX: return (double)(long)arg;
+            case TOKEN_FIX: return (arg >= 0) ? floor(arg) : ceil(arg);
             case TOKEN_SGN: return (arg > 0) - (arg < 0);
             case TOKEN_EOF_FUNC: {
                 int fnum = (int)arg;
@@ -1481,6 +1622,19 @@ static double primary_tok(TokenStream *ts) {
             }
             case TOKEN_TIMER: return (double)clock() / CLOCKS_PER_SEC;
             case TOKEN_KEY: return (double)get_graphics_key();
+            case TOKEN_STRIG: {
+                int s = (int)arg;
+                if (s >= 0 && s < 8) {
+                    if (s % 2 == 0) {
+                        double val = strig_button_pressed_since[s] ? -1.0 : 0.0;
+                        strig_button_pressed_since[s] = 0;
+                        return val;
+                    } else {
+                        return strig_button_currently_pressed[s - 1] ? -1.0 : 0.0;
+                    }
+                }
+                return 0;
+            }
             case TOKEN_PEEK: {
                 int addr = (int)arg;
                 if (addr < 0 || addr >= 65536) return 0;
@@ -1672,7 +1826,7 @@ static double primary(const char **input) {
         get_next_token(input); // consume ')'
         return val;
     }
-    if ((t.type >= TOKEN_ABS && t.type <= TOKEN_SGN) || t.type == TOKEN_EOF_FUNC || t.type == TOKEN_TIMER || t.type == TOKEN_KEY || t.type == TOKEN_ASC || t.type == TOKEN_LEN || t.type == TOKEN_INSTR || t.type == TOKEN_VAL || t.type == TOKEN_PEEK || t.type == TOKEN_VARPTR || t.type == TOKEN_LOF || t.type == TOKEN_LOC) {
+    if ((t.type >= TOKEN_ABS && t.type <= TOKEN_SGN) || t.type == TOKEN_EOF_FUNC || t.type == TOKEN_TIMER || t.type == TOKEN_KEY || t.type == TOKEN_STRIG || t.type == TOKEN_ASC || t.type == TOKEN_LEN || t.type == TOKEN_INSTR || t.type == TOKEN_VAL || t.type == TOKEN_PEEK || t.type == TOKEN_VARPTR || t.type == TOKEN_LOF || t.type == TOKEN_LOC) {
         TokenType ft = t.type;
         const char *saved = *input;
         Token next = get_next_token(input);
@@ -1693,44 +1847,34 @@ static double primary(const char **input) {
                 if (array_idx >= 0) return 61440.0 + var_idx * 256.0 + array_idx;
                 return 61440.0 + var_idx * 256.0;
             }
-            if (ft == TOKEN_ASC) {
+            if (ft == TOKEN_ASC || ft == TOKEN_LEN || ft == TOKEN_VAL) {
                 char buf[256] = "";
                 parse_string_expression(input, buf, sizeof(buf));
                 get_next_token(input); // consume ')'
-                return buf[0] ? (double)(unsigned char)buf[0] : 0;
-            }
-            if (ft == TOKEN_LEN) {
-                char buf[256] = "";
-                parse_string_expression(input, buf, sizeof(buf));
-                get_next_token(input); // consume ')'
-                return (double)strlen(buf);
-            }
-            if (ft == TOKEN_VAL) {
-                char buf[256] = "";
-                parse_string_expression(input, buf, sizeof(buf));
-                get_next_token(input); // consume ')'
-                return atof(buf);
+                if (ft == TOKEN_ASC) return buf[0] ? (double)(unsigned char)buf[0] : 0;
+                if (ft == TOKEN_LEN) return (double)strlen(buf);
+                if (ft == TOKEN_VAL) return atof(buf);
             }
             if (ft == TOKEN_INSTR) {
-                char s1[256] = "", s2[256] = "";
-                double start = 1.0;
-                const char *lookahead = *input;
-                Token first_arg = get_next_token(&lookahead);
-                
-                if (first_arg.type == TOKEN_NUMBER || (first_arg.type == TOKEN_IDENTIFIER && first_arg.text[strlen(first_arg.text)-1] != '$')) {
-                    start = evaluate_expression(input);
-                    get_next_token(input); // ,
+                char s1[256] = "";
+                char s2[256] = "";
+                int start = 1;
+                const char *saved_instr = *input;
+                Token first_arg = get_next_token(input);
+                if (first_arg.type != TOKEN_STRING && first_arg.type != TOKEN_IDENTIFIER) {
+                    *input = saved_instr;
+                    start = (int)evaluate_expression(input);
+                    get_next_token(input); // consume comma
+                } else {
+                    *input = saved_instr;
                 }
-                
                 parse_string_expression(input, s1, sizeof(s1));
-                get_next_token(input); // ,
+                get_next_token(input); // consume comma
                 parse_string_expression(input, s2, sizeof(s2));
-                get_next_token(input); // )
-                
-                if (start < 1) start = 1;
-                if (start > (double)strlen(s1)) return 0;
-                char *p = strstr(s1 + (int)start - 1, s2);
-                return p ? (double)(p - s1 + 1) : 0;
+                get_next_token(input); // consume ')'
+                if (start < 1) return 0;
+                char *pos = strstr(s1 + start - 1, s2);
+                return pos ? (double)(pos - s1 + 1) : 0;
             }
             arg = evaluate_expression(input);
             get_next_token(input); // consume ')'
@@ -1782,6 +1926,19 @@ static double primary(const char **input) {
             }
             case TOKEN_TIMER: return (double)clock() / CLOCKS_PER_SEC;
             case TOKEN_KEY: return (double)get_graphics_key();
+            case TOKEN_STRIG: {
+                int s = (int)arg;
+                if (s >= 0 && s < 8) {
+                    if (s % 2 == 0) {
+                        double val = strig_button_pressed_since[s] ? -1.0 : 0.0;
+                        strig_button_pressed_since[s] = 0;
+                        return val;
+                    } else {
+                        return strig_button_currently_pressed[s - 1] ? -1.0 : 0.0;
+                    }
+                }
+                return 0;
+            }
             case TOKEN_PEEK: {
                 int addr = (int)arg;
                 if (addr < 0 || addr >= 65536) return 0;
@@ -1969,10 +2126,127 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                         return;
                     }
                 }
+            } else if (next.type == TOKEN_KEY || next.type == TOKEN_TIMER || next.type == TOKEN_STRIG) {
+                Token lparen = get_next_token(&ptr);
+                double n_val = 0;
+                if (lparen.type == TOKEN_LPAREN) {
+                    n_val = evaluate_expression(&ptr);
+                    Token rparen = get_next_token(&ptr);
+                    if (rparen.type != TOKEN_RPAREN) {
+                        report_runtime_error(ERR_SYNTAX_ERROR);
+                        return;
+                    }
+                } else {
+                    report_runtime_error(ERR_SYNTAX_ERROR);
+                    return;
+                }
+
+                Token gosub_tok = get_next_token(&ptr);
+                if (gosub_tok.type != TOKEN_GOSUB) {
+                    report_runtime_error(ERR_SYNTAX_ERROR);
+                    return;
+                }
+                
+                Token target_tok = get_next_token(&ptr);
+                if (target_tok.type != TOKEN_NUMBER) {
+                    report_runtime_error(ERR_SYNTAX_ERROR);
+                    return;
+                }
+
+                int target_line = target_tok.int_val;
+                if (next.type == TOKEN_KEY) {
+                    int k = (int)n_val;
+                    if (k >= 1 && k < 32) {
+                        on_key_line[k] = target_line;
+                    } else {
+                        report_runtime_error(ERR_ILLEGAL_FUNCTION_CALL);
+                        return;
+                    }
+                } else if (next.type == TOKEN_TIMER) {
+                    timer_interval = n_val;
+                    on_timer_line = target_line;
+                    timer_pending = 0;
+                    timer_event_active = 0;
+                    timer_last_trigger_time = wall_time_seconds();
+                } else if (next.type == TOKEN_STRIG) {
+                    int s = (int)n_val;
+                    if (s >= 0 && s < 8) {
+                        on_strig_line[s] = target_line;
+                    } else {
+                        report_runtime_error(ERR_ILLEGAL_FUNCTION_CALL);
+                        return;
+                    }
+                }
+                *ptr_addr = ptr;
+                return;
             }
             ptr = saved;
-            // Fall through if not ON ERROR GOTO, but it should be handled in run_program loop
-            // for regular ON index GOTO.
+        } else if (t.type == TOKEN_KEY) {
+            const char *saved_key = ptr;
+            Token first = get_next_token(&ptr);
+            if (first.type == TOKEN_LPAREN) {
+                int k = (int)evaluate_expression(&ptr);
+                Token rparen = get_next_token(&ptr);
+                if (rparen.type == TOKEN_RPAREN) {
+                    Token mode = get_next_token(&ptr);
+                    if (mode.type == TOKEN_ON) {
+                        if (k >= 1 && k < 32) key_state[k] = 1;
+                        *ptr_addr = ptr;
+                        return;
+                    } else if (mode.type == TOKEN_OFF) {
+                        if (k >= 1 && k < 32) {
+                            key_state[k] = 0;
+                            key_event_pending[k] = 0;
+                        }
+                        *ptr_addr = ptr;
+                        return;
+                    } else if (mode.type == TOKEN_IDENTIFIER && strcasecmp(mode.text, "STOP") == 0) {
+                        if (k >= 1 && k < 32) key_state[k] = 2;
+                        *ptr_addr = ptr;
+                        return;
+                    }
+                }
+            } else if (first.type == TOKEN_ON || first.type == TOKEN_OFF || (first.type == TOKEN_IDENTIFIER && strcasecmp(first.text, "STOP") == 0)) {
+                *ptr_addr = ptr;
+                return;
+            }
+            ptr = saved_key;
+        } else if (t.type == TOKEN_TIMER) {
+            Token mode = get_next_token(&ptr);
+            if (mode.type == TOKEN_ON) {
+                timer_state = 1;
+                timer_pending = 0;
+                timer_event_active = 0;
+                timer_last_trigger_time = wall_time_seconds();
+                *ptr_addr = ptr;
+                return;
+            } else if (mode.type == TOKEN_OFF) {
+                timer_state = 0;
+                timer_pending = 0;
+                timer_event_active = 0;
+                *ptr_addr = ptr;
+                return;
+            } else if (mode.type == TOKEN_IDENTIFIER && strcasecmp(mode.text, "STOP") == 0) {
+                timer_state = 2;
+                *ptr_addr = ptr;
+                return;
+            }
+        } else if (t.type == TOKEN_STRIG) {
+            Token mode = get_next_token(&ptr);
+            if (mode.type == TOKEN_ON) {
+                strig_state = 1;
+                *ptr_addr = ptr;
+                return;
+            } else if (mode.type == TOKEN_OFF) {
+                strig_state = 0;
+                for (int i = 0; i < 8; i++) strig_event_pending[i] = 0;
+                *ptr_addr = ptr;
+                return;
+            } else if (mode.type == TOKEN_IDENTIFIER && strcasecmp(mode.text, "STOP") == 0) {
+                strig_state = 2;
+                *ptr_addr = ptr;
+                return;
+            }
         }
         
         if (t.type == TOKEN_PRINT) {
@@ -3162,6 +3436,17 @@ void run_program() {
     error_ptr = NULL;
     error_next_ptr = NULL;
 
+    timer_pending = 0;
+    timer_event_active = 0;
+    for (int i = 0; i < 32; i++) {
+        key_event_pending[i] = 0;
+        key_event_active[i] = 0;
+    }
+    for (int i = 0; i < 8; i++) {
+        strig_event_pending[i] = 0;
+        strig_event_active[i] = 0;
+    }
+
     int poll_counter = 0;
     while (curr && !stop_running) {
         if (++poll_counter >= 1000) {
@@ -3335,6 +3620,52 @@ void run_program() {
                     // We need to advance ts.pos to match where interpret_line_at_ptr left off
                     while(ts.pos < exec_stmt->token_count && ts.tokens[ts.pos].type != TOKEN_COLON && ts.tokens[ts.pos].type != TOKEN_EOF) ts.pos++;
                     continue;
+                } else if (next_on.type == TOKEN_KEY || next_on.type == TOKEN_TIMER || next_on.type == TOKEN_STRIG) {
+                    ts.pos++;
+                    if (ts.pos >= exec_stmt->token_count || ts.tokens[ts.pos].type != TOKEN_LPAREN) {
+                        report_runtime_error(ERR_SYNTAX_ERROR);
+                        break;
+                    }
+                    ts.pos++;
+                    double n_val = evaluate_expression_tok(&ts);
+                    if (ts.pos >= exec_stmt->token_count || ts.tokens[ts.pos].type != TOKEN_RPAREN) {
+                        report_runtime_error(ERR_SYNTAX_ERROR);
+                        break;
+                    }
+                    ts.pos++;
+                    if (ts.pos >= exec_stmt->token_count || ts.tokens[ts.pos].type != TOKEN_GOSUB) {
+                        report_runtime_error(ERR_SYNTAX_ERROR);
+                        break;
+                    }
+                    ts.pos++;
+                    if (ts.pos >= exec_stmt->token_count || ts.tokens[ts.pos].type != TOKEN_NUMBER) {
+                        report_runtime_error(ERR_SYNTAX_ERROR);
+                        break;
+                    }
+
+                    int target_line = ts.tokens[ts.pos++].int_val;
+                    if (next_on.type == TOKEN_KEY) {
+                        int k = (int)n_val;
+                        if (k >= 1 && k < 32) {
+                            on_key_line[k] = target_line;
+                        } else {
+                            report_runtime_error(ERR_ILLEGAL_FUNCTION_CALL);
+                        }
+                    } else if (next_on.type == TOKEN_TIMER) {
+                        timer_interval = n_val;
+                        on_timer_line = target_line;
+                        timer_pending = 0;
+                        timer_event_active = 0;
+                        timer_last_trigger_time = wall_time_seconds();
+                    } else if (next_on.type == TOKEN_STRIG) {
+                        int s = (int)n_val;
+                        if (s >= 0 && s < 8) {
+                            on_strig_line[s] = target_line;
+                        } else {
+                            report_runtime_error(ERR_ILLEGAL_FUNCTION_CALL);
+                        }
+                    }
+                    continue;
                 }
 
                 int index = (int)evaluate_expression_tok(&ts);
@@ -3349,13 +3680,15 @@ void run_program() {
                 if (count == index) {
                     Token target = ts.tokens[ts.pos++];
                     if (jump_type.type == TOKEN_GOSUB) {
-                        if (gosub_ptr < 32) {
+                    if (gosub_ptr < 32) {
                             gosub_call_stack[gosub_ptr].stmt = exec_stmt;
                             // For return ptr, skip the rest of this command
                             while(ts.pos < exec_stmt->token_count && ts.tokens[ts.pos].type != TOKEN_COLON) ts.pos++;
                             const char *temp_ptr = exec_stmt->raw_command;
                             for(int k=0; k < ts.pos; k++) get_next_token(&temp_ptr);
                             gosub_call_stack[gosub_ptr].ptr = temp_ptr;
+                            gosub_call_stack[gosub_ptr].event_type = EVENT_NONE;
+                            gosub_call_stack[gosub_ptr].event_index = 0;
                             gosub_ptr++;
                             curr = find_line(target.int_val);
                             jumped = 1;
@@ -3381,6 +3714,8 @@ void run_program() {
                     const char *temp_ptr = exec_stmt->raw_command;
                     for(int k=0; k < ts.pos; k++) get_next_token(&temp_ptr);
                     gosub_call_stack[gosub_ptr].ptr = temp_ptr;
+                    gosub_call_stack[gosub_ptr].event_type = EVENT_NONE;
+                    gosub_call_stack[gosub_ptr].event_index = 0;
                     gosub_ptr++;
                     curr = find_line(target.int_val);
                     jumped = 1;
@@ -3398,6 +3733,21 @@ void run_program() {
                     gosub_ptr--;
                     curr = gosub_call_stack[gosub_ptr].stmt;
                     resume_ptr = gosub_call_stack[gosub_ptr].ptr;
+                    
+                    if (gosub_call_stack[gosub_ptr].event_type == EVENT_TIMER) {
+                        timer_event_active = 0;
+                        timer_last_trigger_time = wall_time_seconds();
+                    } else if (gosub_call_stack[gosub_ptr].event_type == EVENT_KEY) {
+                        int k = gosub_call_stack[gosub_ptr].event_index;
+                        if (k >= 1 && k < 32) key_event_active[k] = 0;
+                    } else if (gosub_call_stack[gosub_ptr].event_type == EVENT_STRIG) {
+                        int s = gosub_call_stack[gosub_ptr].event_index;
+                        if (s >= 0 && s < 8) strig_event_active[s] = 0;
+                    }
+                    if (graphics_is_active()) {
+                        graphics_present_now();
+                    }
+                    
                     jumped = 1;
                     break;
                 } else {
@@ -3518,6 +3868,16 @@ void run_program() {
                 while(ts.pos < exec_stmt->token_count && ts.tokens[ts.pos].start_ptr < temp_ptr) ts.pos++;
                 break;
             }
+            }
+
+            maybe_queue_timer_event();
+            if (!jumped && !runtime_error_occurred && dispatch_pending_timer_event(exec_stmt, &ts, &curr, &resume_ptr)) {
+                jumped = 1;
+                break;
+            }
+            if (!jumped && !runtime_error_occurred && dispatch_pending_key_event(exec_stmt, &ts, &curr, &resume_ptr)) {
+                jumped = 1;
+                break;
             }
         }
 

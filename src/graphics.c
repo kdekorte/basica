@@ -218,6 +218,37 @@ static int utf8_char_len(unsigned char c) {
     return 1;
 }
 
+static int map_key_to_trap_index(SDL_Keycode key) {
+    switch (key) {
+        case SDLK_F1: return 1;
+        case SDLK_F2: return 2;
+        case SDLK_F3: return 3;
+        case SDLK_F4: return 4;
+        case SDLK_F5: return 5;
+        case SDLK_F6: return 6;
+        case SDLK_F7: return 7;
+        case SDLK_F8: return 8;
+        case SDLK_F9: return 9;
+        case SDLK_F10: return 10;
+        case SDLK_UP: return 11;
+        case SDLK_LEFT: return 12;
+        case SDLK_RIGHT: return 13;
+        case SDLK_DOWN: return 14;
+        default:
+            break;
+    }
+
+    return 0;
+}
+
+static void clear_text_cell(int x, int y) {
+    if (!renderer || !canvas) return;
+    SDL_SetRenderTarget(renderer, canvas);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_FRect cell = {(float)x, (float)y, (float)current_col_width, (float)current_row_height};
+    SDL_RenderFillRect(renderer, &cell);
+}
+
 void graphics_print(const char *text) {
     if (!font || !canvas || !text) return;
     
@@ -236,9 +267,11 @@ void graphics_print(const char *text) {
             continue;
         }
         if (*text == ' ') {
+            clear_text_cell(cursor_x, cursor_y);
             cursor_x += current_col_width;
             text++;
         } else {
+            clear_text_cell(cursor_x, cursor_y);
             unsigned char c = (unsigned char)*text;
             if (c < 128 && glyph_cache[c]) {
                 SDL_SetTextureColorMod(glyph_cache[c], current_text_color.r, current_text_color.g, current_text_color.b);
@@ -817,6 +850,7 @@ void handle_events() {
             if (e.text.text[0]) last_key_char = (unsigned char)e.text.text[0];
         }
         if (e.type == SDL_EVENT_KEY_DOWN) {
+            int trap_idx = map_key_to_trap_index(e.key.key);
             switch (e.key.key) {
                 case SDLK_RETURN: last_key_char = 13; break;
                 case SDLK_UP:    last_key_code = 1; break;
@@ -832,6 +866,9 @@ void handle_events() {
                         last_key_char = (int)e.key.key;
                     }
                     break;
+            }
+            if (trap_idx > 0) {
+                basica_trigger_key_event(trap_idx);
             }
         }
     }

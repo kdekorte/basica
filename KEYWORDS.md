@@ -7,6 +7,8 @@
 - `GOTO line`: Unconditional jump.
 - `IF condition THEN [line | statement] [ELSE statement]`: Conditional execution.
 - `ON expression {GOTO | GOSUB} line1[, line2...]`: Computed jump.
+- `ON KEY(n) GOSUB line`: Enables a key trap for key `n`.
+- `ON TIMER(n) GOSUB line`: Enables a periodic timer trap.
 - `ON ERROR GOTO line`: Error trapping.
 - `RESUME [0 | NEXT | line]`: Error recovery.
 - `STOP`: Halts execution (can be resumed with `CONT`).
@@ -37,10 +39,12 @@
 - `CLS`: Clears the screen.
 - `COLOR foreground[, background]`: Sets text or graphics colors.
 - `INPUT ["prompt"{,|;}] [#n,] var1[, var2...]`: User input.
+- `KEY(n) ON|OFF|STOP`: Enables, disables, or stops a key trap for key `n`.
 - `LOCATE row, col`: Positions the cursor.
 - `PRINT [#n,] [USING "fmt";] [expressions] [,|;]`: Output to screen or file.
 - `SPC(n)`: Used in `PRINT` to output spaces.
 - `TAB(n)`: Used in `PRINT` to move to a specific column.
+- `TIMER ON|OFF|STOP`: Controls timer trapping.
 
 ## File and System Operations
 - `CHDIR "path"`: Changes current directory.
