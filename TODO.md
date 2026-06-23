@@ -14,7 +14,6 @@
 
 ## Interpreter correctness
 
-- Support `FIELD`, `LSET`, and `RSET` for formal Random Access File record handling.
 - Add support for `CONT`, `STOP`, and better direct-mode behavior.
 - Implement `WAIT` for port monitoring (or a simulated equivalent).
 
@@ -29,7 +28,9 @@
 - Add a developer note documenting how to add a new BASIC keyword.
 
 ## UX and documentation
+
 - Implement `ON STRIG(n)` trapping and add a demo/test for it.
+- Implement `MKI$(), MKS$(), MKD$()` functions and add demo/test for them.
 - Add a command-line option to dump supported commands.
 - Add a command support matrix: supported, partial, planned.
 - Add examples for file I/O, graphics, sound, arrays, and error handling.

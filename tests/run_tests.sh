@@ -106,6 +106,7 @@ TESTS=(
   "tests/shebang_test"
   "tests/bitwise"
   "tests/bitwise_control"
+  "tests/field_record"
   "tests/on_timer"
   "tests/nested_paren"
   "tests/def_types"
@@ -164,5 +165,6 @@ echo "All tests PASS"
 
 echo "Cleaning up temp files"
 rm -rf test_dir_ext tests/filo_test.tmp tests/putget.tmp tests/putfrom.tmp tests/getinto.tmp tests/delete_test.tmp tests/kill_tmp1.tmp tests/kill_tmp2.tmp tests/input_multi.tmp
+rm -f tests/field_record.tmp
 
 exit 0

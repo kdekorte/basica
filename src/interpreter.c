@@ -42,6 +42,22 @@ static char default_type_map[26] = {
 };
 
 static FILE *file_handles[16] = {NULL};
+typedef struct {
+    int var_idx;
+    int array_idx;
+    int offset;
+    int len;
+} FieldBinding;
+
+typedef struct {
+    char *buffer;
+    int size;
+    int binding_count;
+    FieldBinding bindings[64];
+} FileFieldState;
+
+static FileFieldState file_field_state[16];
+
 static unsigned int rnd_seed = 1;
 static double last_rnd_value = 0.0;
 static int on_error_goto_line = 0;
@@ -546,6 +562,58 @@ int find_variable(const char *name) {
     return -1;
 }
 
+static void reset_file_field_state(int fnum) {
+    if (fnum < 1 || fnum >= 16) return;
+    if (file_field_state[fnum].buffer) {
+        free(file_field_state[fnum].buffer);
+        file_field_state[fnum].buffer = NULL;
+    }
+    file_field_state[fnum].size = 0;
+    file_field_state[fnum].binding_count = 0;
+}
+
+static int find_field_binding(int idx, int array_idx, int *out_fnum, FieldBinding *out_binding) {
+    for (int fnum = 15; fnum >= 1; fnum--) {
+        FileFieldState *state = &file_field_state[fnum];
+        for (int i = state->binding_count - 1; i >= 0; i--) {
+            if (state->bindings[i].var_idx == idx && state->bindings[i].array_idx == array_idx) {
+                if (out_fnum) *out_fnum = fnum;
+                if (out_binding) *out_binding = state->bindings[i];
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+static void write_field_segment(int fnum, const FieldBinding *binding, const char *value, int right_justify) {
+    if (fnum < 1 || fnum >= 16 || !binding) return;
+    FileFieldState *state = &file_field_state[fnum];
+    if (!state->buffer || binding->offset < 0 || binding->len < 0) return;
+    if (binding->offset >= state->size) return;
+
+    int seg_len = binding->len;
+    if (binding->offset + seg_len > state->size) {
+        seg_len = state->size - binding->offset;
+    }
+    if (seg_len < 0) return;
+
+    char *dest = state->buffer + binding->offset;
+    memset(dest, ' ', seg_len);
+
+    if (!value) value = "";
+    int src_len = (int)strlen(value);
+    if (src_len > seg_len) src_len = seg_len;
+    int start = right_justify ? (seg_len - src_len) : 0;
+    if (start < 0) start = 0;
+    memcpy(dest + start, value + ((right_justify && (int)strlen(value) > seg_len) ? ((int)strlen(value) - seg_len) : 0), src_len);
+    state->buffer[state->size] = '\0';
+}
+
+static int get_field_binding_for_var(int idx, int array_idx, int *out_fnum, FieldBinding *out_binding) {
+    return find_field_binding(idx, array_idx, out_fnum, out_binding);
+}
+
 typedef enum {
     EVENT_NONE = 0,
     EVENT_KEY,
@@ -821,6 +889,21 @@ static int parse_array_index_tok(TokenStream *ts, int var_idx) {
 
 static void get_string_variable_value(int idx, int array_idx, char *dest, int dest_size) {
     const char *src = "";
+    int fnum = 0;
+    FieldBinding binding;
+    if (get_field_binding_for_var(idx, array_idx, &fnum, &binding)) {
+        FileFieldState *state = &file_field_state[fnum];
+        if (state->buffer && binding.offset >= 0 && binding.offset < state->size) {
+            int copy_len = binding.len;
+            if (binding.offset + copy_len > state->size) copy_len = state->size - binding.offset;
+            if (copy_len < 0) copy_len = 0;
+            if (copy_len >= dest_size) copy_len = dest_size - 1;
+            memcpy(dest, state->buffer + binding.offset, copy_len);
+            dest[copy_len] = '\0';
+            return;
+        }
+    }
+
     if (array_idx >= 0) {
         if (vars[idx].s_array && array_idx >= 0 && array_idx < vars[idx].array_size && vars[idx].s_array[array_idx]) {
             src = vars[idx].s_array[array_idx];
@@ -1319,7 +1402,14 @@ static int parse_string_expression(const char **input, char *out, int out_size) 
     return 1;
 }
 
-static void set_string_variable(int idx, int array_idx, const char *value) {
+static void set_string_variable_with_align(int idx, int array_idx, const char *value, int right_justify) {
+    int fnum = 0;
+    FieldBinding binding;
+    if (get_field_binding_for_var(idx, array_idx, &fnum, &binding)) {
+        write_field_segment(fnum, &binding, value, right_justify);
+        return;
+    }
+
     if (array_idx >= 0) {
         if (!vars[idx].s_array || array_idx < 0 || array_idx >= vars[idx].array_size) return;
         if (vars[idx].s_array[array_idx]) free(vars[idx].s_array[array_idx]);
@@ -1328,6 +1418,10 @@ static void set_string_variable(int idx, int array_idx, const char *value) {
         if (vars[idx].s_value) free(vars[idx].s_value);
         vars[idx].s_value = strdup(value);
     }
+}
+
+static void set_string_variable(int idx, int array_idx, const char *value) {
+    set_string_variable_with_align(idx, array_idx, value, 0);
 }
 
 static void trim_string(char *s) {
@@ -2594,11 +2688,101 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 else if (strcasecmp(m, "INPUT") == 0) mode_str = "r";
                 else if (strcasecmp(m, "RANDOM") == 0) mode_str = "w+";
                 else if (strcasecmp(m, "RWB") == 0 || strcasecmp(m, "RW") == 0) mode_str = "w+";
+                reset_file_field_state(fnum);
                 file_handles[fnum] = fopen(path_buf, mode_str);
                 if (!file_handles[fnum]) {
                     report_runtime_error(ERR_FILE_NOT_FOUND);
                 }
             }
+        } else if (t.type == TOKEN_FIELD) {
+            Token hash = get_next_token(&ptr);
+            if (hash.type != TOKEN_HASH) {
+                report_runtime_error(ERR_SYNTAX_ERROR);
+                return;
+            }
+            int fnum = (int)evaluate_expression(&ptr);
+            if (get_next_token(&ptr).type != TOKEN_COMMA) {
+                report_runtime_error(ERR_SYNTAX_ERROR);
+                return;
+            }
+            if (fnum < 1 || fnum >= 16 || !file_handles[fnum]) {
+                report_runtime_error(ERR_BAD_FILE_NUMBER);
+                return;
+            }
+
+            FieldBinding temp_bindings[64];
+            int binding_count = 0;
+            int total_len = 0;
+
+            while (1) {
+                if (binding_count >= 64) {
+                    report_runtime_error(ERR_FIELD_OVERFLOW);
+                    return;
+                }
+
+                int seg_len = (int)evaluate_expression(&ptr);
+                if (seg_len < 0) {
+                    report_runtime_error(ERR_ILLEGAL_FUNCTION_CALL);
+                    return;
+                }
+
+                const char *saved_seg = ptr;
+                Token maybe_as = get_next_token(&ptr);
+                if (maybe_as.type != TOKEN_AS) {
+                    ptr = saved_seg;
+                }
+
+                Token var = get_next_token(&ptr);
+                if (var.type != TOKEN_IDENTIFIER || !is_string_var(var.text)) {
+                    report_runtime_error(ERR_TYPE_MISMATCH);
+                    return;
+                }
+                int idx = find_variable(var.text);
+                int array_idx = parse_array_index(&ptr, idx);
+
+                temp_bindings[binding_count].var_idx = idx;
+                temp_bindings[binding_count].array_idx = array_idx;
+                temp_bindings[binding_count].offset = total_len;
+                temp_bindings[binding_count].len = seg_len;
+                binding_count++;
+                total_len += seg_len;
+
+                const char *sep_saved = ptr;
+                Token sep = get_next_token(&ptr);
+                if (sep.type != TOKEN_COMMA) {
+                    ptr = sep_saved;
+                    break;
+                }
+            }
+
+            reset_file_field_state(fnum);
+            file_field_state[fnum].buffer = malloc((size_t)total_len + 1);
+            if (!file_field_state[fnum].buffer) {
+                report_runtime_error(ERR_OUT_OF_MEMORY);
+                return;
+            }
+            file_field_state[fnum].size = total_len;
+            file_field_state[fnum].binding_count = binding_count;
+            memset(file_field_state[fnum].buffer, ' ', (size_t)total_len);
+            file_field_state[fnum].buffer[total_len] = '\0';
+            for (int i = 0; i < binding_count; i++) {
+                file_field_state[fnum].bindings[i] = temp_bindings[i];
+            }
+        } else if (t.type == TOKEN_LSET || t.type == TOKEN_RSET) {
+            Token var = get_next_token(&ptr);
+            if (var.type != TOKEN_IDENTIFIER || !is_string_var(var.text)) {
+                report_runtime_error(ERR_TYPE_MISMATCH);
+                return;
+            }
+            int idx = find_variable(var.text);
+            int array_idx = parse_array_index(&ptr, idx);
+            if (get_next_token(&ptr).type != TOKEN_EQUALS) {
+                report_runtime_error(ERR_SYNTAX_ERROR);
+                return;
+            }
+            char value[256] = "";
+            parse_string_expression(&ptr, value, sizeof(value));
+            set_string_variable_with_align(idx, array_idx, value, t.type == TOKEN_RSET);
         } else if (t.type == TOKEN_CLOSE) {
             const char *saved = ptr;
             Token hash = get_next_token(&ptr);
@@ -2607,6 +2791,7 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 if (fnum >= 1 && fnum < 16 && file_handles[fnum]) {
                     fclose(file_handles[fnum]);
                     file_handles[fnum] = NULL;
+                    reset_file_field_state(fnum);
                 }
             } else {
                 ptr = saved;
@@ -2903,24 +3088,15 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
             Token var = get_next_token(&ptr);
             int idx = find_variable(var.text);
             int array_idx = parse_array_index(&ptr, idx);
-            char *target = NULL;
-            if (array_idx != -1 && vars[idx].s_array && array_idx >= 0 && array_idx < vars[idx].array_size) {
-                target = vars[idx].s_array[array_idx];
-            } else {
-                target = vars[idx].s_value;
-            }
-            if (target) {
+            char target[256] = "";
+            get_string_variable_value(idx, array_idx, target, sizeof(target));
+            if (target[0]) {
                 size_t len = strlen(target);
-                char *rev = malloc(len + 1);
+                char rev[256] = "";
+                if (len >= sizeof(rev)) len = sizeof(rev) - 1;
                 for (size_t i = 0; i < len; i++) rev[i] = target[len - 1 - i];
                 rev[len] = '\0';
-                if (array_idx != -1 && vars[idx].s_array && array_idx >= 0 && array_idx < vars[idx].array_size) {
-                    free(vars[idx].s_array[array_idx]);
-                    vars[idx].s_array[array_idx] = rev;
-                } else {
-                    if (vars[idx].s_value) free(vars[idx].s_value);
-                    vars[idx].s_value = rev;
-                }
+                set_string_variable(idx, array_idx, rev);
             }
         } else if (t.type == TOKEN_OPTION) {
             Token base = get_next_token(&ptr);
@@ -3220,19 +3396,17 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
             const char *saved = ptr;
             Token next = get_next_token(&ptr);
             if (next.type == TOKEN_LPAREN) {
-                // Graphics PUT (x,y), array [, action]
                 int x = (int)evaluate_expression(&ptr);
                 if (get_next_token(&ptr).type == TOKEN_COMMA) {
                     int y = (int)evaluate_expression(&ptr);
-                    get_next_token(&ptr); // RPAREN
-                    get_next_token(&ptr); // comma
+                    get_next_token(&ptr);
+                    get_next_token(&ptr);
                     Token var_tok = get_next_token(&ptr);
                     int idx = find_variable(var_tok.text);
-                    
                     if (idx != -1 && vars[idx].array && vars[idx].array_size >= 2) {
                         int w = (int)vars[idx].array[0];
                         int h = (int)vars[idx].array[1];
-                        int action = 0; // 0=XOR, 1=PSET, 2=PRESET, 3=AND, 4=OR
+                        int action = 0;
                         const char *action_saved = ptr;
                         if (get_next_token(&ptr).type == TOKEN_COMMA) {
                             Token act_tok = get_next_token(&ptr);
@@ -3241,8 +3415,9 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                             else if (strcasecmp(act_tok.text, "AND") == 0) action = 3;
                             else if (strcasecmp(act_tok.text, "OR") == 0) action = 4;
                             else if (strcasecmp(act_tok.text, "XOR") == 0) action = 0;
-                        } else { ptr = action_saved; }
-
+                        } else {
+                            ptr = action_saved;
+                        }
                         int k = 2;
                         for (int j = 0; j < h; j++) {
                             for (int i = 0; i < w; i++) {
@@ -3250,7 +3425,7 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                                 int src_col = (int)vars[idx].array[k++];
                                 int dst_col = get_pixel(x + i, y + j);
                                 int final_col = src_col;
-                                switch(action) {
+                                switch (action) {
                                     case 0: final_col = src_col ^ dst_col; break;
                                     case 1: final_col = src_col; break;
                                     case 2: final_col = ~src_col & 0x0F; break;
@@ -3269,9 +3444,17 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 if (sep.type != TOKEN_COMMA) { ptr = saved; }
                 else {
                     double rec = evaluate_expression(&ptr);
-                    sep = get_next_token(&ptr);
-                    if (sep.type != TOKEN_COMMA) { ptr = saved; }
-                    else {
+                    Token mode_sep = get_next_token(&ptr);
+                    if (mode_sep.type != TOKEN_COMMA) {
+                        if (fnum < 1 || fnum >= 16 || !file_handles[fnum] || !file_field_state[fnum].buffer || file_field_state[fnum].size <= 0) {
+                            report_runtime_error(ERR_BAD_FILE_NUMBER);
+                        } else {
+                            long offset = (long)((rec - 1) * file_field_state[fnum].size);
+                            fseek(file_handles[fnum], offset, SEEK_SET);
+                            fwrite(file_field_state[fnum].buffer, 1, file_field_state[fnum].size, file_handles[fnum]);
+                            fflush(file_handles[fnum]);
+                        }
+                    } else {
                         int len = (int)evaluate_expression(&ptr);
                         sep = get_next_token(&ptr);
                         char data[512] = "";
@@ -3279,13 +3462,13 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                             const char *expr_saved = ptr;
                             Token tok = get_next_token(&ptr);
                             if (tok.type == TOKEN_STRING) {
-                                strncpy(data, tok.text, sizeof(data)-1);
+                                strncpy(data, tok.text, sizeof(data) - 1);
                             } else if (tok.type == TOKEN_IDENTIFIER && is_string_var(tok.text)) {
                                 int src_idx = find_variable(tok.text);
                                 int src_array_idx = parse_array_index(&ptr, src_idx);
                                 char temp[512] = "";
                                 get_string_variable_value(src_idx, src_array_idx, temp, sizeof(temp));
-                                strncpy(data, temp, sizeof(data)-1);
+                                strncpy(data, temp, sizeof(data) - 1);
                             } else {
                                 ptr = expr_saved;
                                 parse_string_expression(&ptr, data, sizeof(data));
@@ -3293,11 +3476,9 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                         } else {
                             ptr = saved;
                         }
-
                         if (fnum < 1 || fnum >= 16 || !file_handles[fnum]) {
                             report_runtime_error(ERR_BAD_FILE_NUMBER);
                         } else {
-                            
                             long offset = (long)((rec - 1) * len);
                             fseek(file_handles[fnum], offset, SEEK_SET);
                             char buf[512];
@@ -3317,21 +3498,19 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
             const char *saved = ptr;
             Token next = get_next_token(&ptr);
             if (next.type == TOKEN_LPAREN) {
-                // Graphics GET (x1,y1)-(x2,y2), array
                 int x1 = (int)evaluate_expression(&ptr);
-                get_next_token(&ptr); // comma
+                get_next_token(&ptr);
                 int y1 = (int)evaluate_expression(&ptr);
-                get_next_token(&ptr); // RPAREN
-                get_next_token(&ptr); // minus
-                get_next_token(&ptr); // LPAREN
+                get_next_token(&ptr);
+                get_next_token(&ptr);
+                get_next_token(&ptr);
                 int x2 = (int)evaluate_expression(&ptr);
-                get_next_token(&ptr); // comma
+                get_next_token(&ptr);
                 int y2 = (int)evaluate_expression(&ptr);
-                get_next_token(&ptr); // RPAREN
-                get_next_token(&ptr); // comma
+                get_next_token(&ptr);
+                get_next_token(&ptr);
                 Token var_tok = get_next_token(&ptr);
                 int idx = find_variable(var_tok.text);
-                
                 int w = abs(x2 - x1) + 1;
                 int h = abs(y2 - y1) + 1;
                 int min_x = (x1 < x2) ? x1 : x2;
@@ -3346,16 +3525,29 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                             vars[idx].array[k++] = (double)get_pixel(min_x + i, min_y + j);
                         }
                     }
-                } else { report_runtime_error(ERR_SUBSCRIPT_OUT_OF_RANGE); }
+                } else {
+                    report_runtime_error(ERR_SUBSCRIPT_OUT_OF_RANGE);
+                }
             } else if (next.type == TOKEN_HASH) {
                 int fnum = (int)evaluate_expression(&ptr);
                 Token sep = get_next_token(&ptr);
                 if (sep.type != TOKEN_COMMA) { ptr = saved; }
                 else {
                     double rec = evaluate_expression(&ptr);
-                    sep = get_next_token(&ptr);
-                    if (sep.type != TOKEN_COMMA) { ptr = saved; }
-                    else {
+                    Token mode_sep = get_next_token(&ptr);
+                    if (mode_sep.type != TOKEN_COMMA) {
+                        if (fnum < 1 || fnum >= 16 || !file_handles[fnum] || !file_field_state[fnum].buffer || file_field_state[fnum].size <= 0) {
+                            report_runtime_error(ERR_BAD_FILE_NUMBER);
+                        } else {
+                            long offset = (long)((rec - 1) * file_field_state[fnum].size);
+                            fseek(file_handles[fnum], offset, SEEK_SET);
+                            size_t r = fread(file_field_state[fnum].buffer, 1, file_field_state[fnum].size, file_handles[fnum]);
+                            if (r < (size_t)file_field_state[fnum].size) {
+                                for (size_t i = r; i < (size_t)file_field_state[fnum].size; i++) file_field_state[fnum].buffer[i] = ' ';
+                            }
+                            file_field_state[fnum].buffer[file_field_state[fnum].size] = '\0';
+                        }
+                    } else {
                         int len = (int)evaluate_expression(&ptr);
                         sep = get_next_token(&ptr);
                         if (sep.type != TOKEN_COMMA) { ptr = saved; }
@@ -3373,19 +3565,12 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                                     char buf[512];
                                     size_t r = fread(buf, 1, len, file_handles[fnum]);
                                     if (r < (size_t)len) {
-                                        for (size_t i=r;i<(size_t)len;i++) buf[i] = ' ';
+                                        for (size_t i = r; i < (size_t)len; i++) buf[i] = ' ';
                                     }
                                     buf[len] = '\0';
-                                    // Trim trailing spaces
                                     int trim = len - 1;
                                     while (trim >= 0 && buf[trim] == ' ') { buf[trim] = '\0'; trim--; }
-                                    if (array_idx >= 0 && vars[idx].s_array && array_idx >= 0 && array_idx < vars[idx].array_size) {
-                                        if (vars[idx].s_array[array_idx]) free(vars[idx].s_array[array_idx]);
-                                        vars[idx].s_array[array_idx] = strdup(buf);
-                                    } else {
-                                        if (vars[idx].s_value) free(vars[idx].s_value);
-                                        vars[idx].s_value = strdup(buf);
-                                    }
+                                    set_string_variable(idx, array_idx, buf);
                                 }
                             }
                         }
@@ -3445,6 +3630,9 @@ void run_program() {
     for (int i = 0; i < 8; i++) {
         strig_event_pending[i] = 0;
         strig_event_active[i] = 0;
+    }
+    for (int i = 1; i < 16; i++) {
+        reset_file_field_state(i);
     }
 
     int poll_counter = 0;

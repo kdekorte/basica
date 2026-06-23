@@ -1,0 +1,12 @@
+10 OPEN "tests/field_record.tmp" FOR RANDOM AS #1
+20 FIELD #1, 10 AS NAME$, 5 AS CODE$
+30 LSET NAME$ = "ALICE"
+40 RSET CODE$ = "42"
+50 PUT #1, 1
+60 LSET NAME$ = ""
+70 RSET CODE$ = ""
+80 GET #1, 1
+90 PRINT "["; NAME$; "]"
+100 PRINT "["; CODE$; "]"
+110 CLOSE #1
+120 END

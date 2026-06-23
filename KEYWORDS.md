@@ -41,7 +41,9 @@
 - `INPUT ["prompt"{,|;}] [#n,] var1[, var2...]`: User input.
 - `KEY(n) ON|OFF|STOP`: Enables, disables, or stops a key trap for key `n`.
 - `LOCATE row, col`: Positions the cursor.
+- `LSET var$ = expression$`: Left-justifies a string into a field buffer or string variable.
 - `PRINT [#n,] [USING "fmt";] [expressions] [,|;]`: Output to screen or file.
+- `RSET var$ = expression$`: Right-justifies a string into a field buffer or string variable.
 - `SPC(n)`: Used in `PRINT` to output spaces.
 - `TAB(n)`: Used in `PRINT` to move to a specific column.
 - `TIMER ON|OFF|STOP`: Controls timer trapping.
@@ -52,12 +54,13 @@
 - `DELETE "file" | line`: Deletes a file or program line.
 - `ENVIRON "VAR=VALUE"`: Sets environment variables.
 - `FILES ["pattern"] [, "output_file"]`: Lists files (wildcards supported). Output shows modification date/time, size (or `<DIR>`), and filename — formatted similar to DOS/BASICA. If `"output_file"` is provided, filenames are written to that file (one per line).
-- `GET #n, record, length, var$`: Binary/Random file input.
+- `FIELD #n, len AS var$[, len AS var$...]`: Defines record fields for random-file buffers.
+- `GET #n, record[, length, var$]`: Binary/Random file input. If length and `var$` are omitted, the current field buffer for `#n` is read.
 - `KILL "pattern"`: Deletes files using wildcards.
 - `MKDIR "path"`: Creates a directory.
 - `NAME "old" AS "new"`: Renames a file.
 - `OPEN "file" FOR mode AS #n`: Opens a file (INPUT, OUTPUT, RANDOM, RWB).
-- `PUT #n, record, length, data$`: Binary/Random file output.
+- `PUT #n, record[, length, data$]`: Binary/Random file output. If length and `data$` are omitted, the current field buffer for `#n` is written.
 - `RMDIR "path"`: Removes a directory.
 - `SEEK #n, pos`: Sets file position.
 - `SHELL ["command"]`: Executes a system command.
