@@ -30,7 +30,6 @@
 ## UX and documentation
 
 - Implement `ON STRIG(n)` trapping and add a demo/test for it.
-- Implement `MKI$(), MKS$(), MKD$()` functions and add demo/test for them.
 - Add a command-line option to dump supported commands.
 - Add a command support matrix: supported, partial, planned.
 - Add examples for file I/O, graphics, sound, arrays, and error handling.

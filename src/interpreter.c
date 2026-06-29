@@ -915,6 +915,37 @@ static void get_string_variable_value(int idx, int array_idx, char *dest, int de
     dest[dest_size - 1] = '\0';
 }
 
+static int get_string_variable_raw(int idx, int array_idx, char *dest, int dest_size) {
+    int fnum = 0;
+    FieldBinding binding;
+    if (get_field_binding_for_var(idx, array_idx, &fnum, &binding)) {
+        FileFieldState *state = &file_field_state[fnum];
+        if (state->buffer && binding.offset >= 0 && binding.offset < state->size) {
+            int copy_len = binding.len;
+            if (binding.offset + copy_len > state->size) copy_len = state->size - binding.offset;
+            if (copy_len < 0) copy_len = 0;
+            if (copy_len >= dest_size) copy_len = dest_size - 1;
+            memcpy(dest, state->buffer + binding.offset, (size_t)copy_len);
+            dest[copy_len] = '\0';
+            return copy_len;
+        }
+    }
+
+    const char *src = "";
+    if (array_idx >= 0) {
+        if (vars[idx].s_array && array_idx >= 0 && array_idx < vars[idx].array_size && vars[idx].s_array[array_idx]) {
+            src = vars[idx].s_array[array_idx];
+        }
+    } else {
+        if (vars[idx].s_value) src = vars[idx].s_value;
+    }
+    int len = (int)strlen(src);
+    if (len >= dest_size) len = dest_size - 1;
+    memcpy(dest, src, (size_t)len);
+    dest[len] = '\0';
+    return len;
+}
+
 static void append_string_value(char *dest, const char *src, int dest_size) {
     size_t used = strlen(dest);
     if (used + 1 >= (size_t)dest_size) return;
@@ -1135,6 +1166,25 @@ static int parse_string_expression_tok(TokenStream *ts, char *out, int out_size)
             if (ts->tokens[ts->pos].type == TOKEN_RPAREN) ts->pos++; // )
             if (val >= 0) snprintf(term, sizeof(term), " %g", val);
             else snprintf(term, sizeof(term), "%g", val);
+        } else if (t.type == TOKEN_MKI || t.type == TOKEN_MKS || t.type == TOKEN_MKD) {
+            ts->pos++; // func
+            ts->pos++; // (
+            double val = evaluate_expression_tok(ts);
+            if (ts->tokens[ts->pos].type == TOKEN_RPAREN) ts->pos++; // )
+            if (t.type == TOKEN_MKI) {
+                int ival = (int)val;
+                term[0] = (char)(ival & 0xFF);
+                term[1] = (char)((ival >> 8) & 0xFF);
+                term[2] = '\0';
+            } else if (t.type == TOKEN_MKS) {
+                float fval = (float)val;
+                memcpy(term, &fval, 4);
+                term[4] = '\0';
+            } else {
+                double dval = val;
+                memcpy(term, &dval, 8);
+                term[8] = '\0';
+            }
         } else if (t.type == TOKEN_STRING) {
             strncpy(term, t.text, sizeof(term) - 1);
             ts->pos++;
@@ -1371,6 +1421,24 @@ static int parse_string_expression(const char **input, char *out, int out_size) 
             get_next_token(input); // )
             if (val >= 0) snprintf(term, sizeof(term), " %g", val);
             else snprintf(term, sizeof(term), "%g", val);
+        } else if (t.type == TOKEN_MKI || t.type == TOKEN_MKS || t.type == TOKEN_MKD) {
+            get_next_token(input); // (
+            double val = evaluate_expression(input);
+            get_next_token(input); // )
+            if (t.type == TOKEN_MKI) {
+                int ival = (int)val;
+                term[0] = (char)(ival & 0xFF);
+                term[1] = (char)((ival >> 8) & 0xFF);
+                term[2] = '\0';
+            } else if (t.type == TOKEN_MKS) {
+                float fval = (float)val;
+                memcpy(term, &fval, 4);
+                term[4] = '\0';
+            } else {
+                double dval = val;
+                memcpy(term, &dval, 8);
+                term[8] = '\0';
+            }
         } else if (t.type == TOKEN_STRING) {
             strncpy(term, t.text, sizeof(term) - 1);
         } else if (t.type == TOKEN_IDENTIFIER && is_string_var(t.text)) {
@@ -1563,6 +1631,7 @@ static int is_string_token(Token t) {
             t.type == TOKEN_MID || t.type == TOKEN_UCASE || t.type == TOKEN_LCASE ||
             t.type == TOKEN_TRIM || t.type == TOKEN_LTRIM || t.type == TOKEN_RTRIM ||
             t.type == TOKEN_STR || t.type == TOKEN_HEX || t.type == TOKEN_OCT ||
+            t.type == TOKEN_MKI || t.type == TOKEN_MKS || t.type == TOKEN_MKD ||
             t.type == TOKEN_STRING_FUNC || t.type == TOKEN_INKEY || t.type == TOKEN_GETS || t.type == TOKEN_ENVIRON ||
             t.type == TOKEN_TIME || t.type == TOKEN_DATE || t.type == TOKEN_TAB ||
             t.type == TOKEN_SPACE || t.type == TOKEN_SPC ||
@@ -1620,7 +1689,7 @@ static double primary_tok(TokenStream *ts) {
         return val;
     }
 
-    if ((t.type >= TOKEN_ABS && t.type <= TOKEN_SGN) || t.type == TOKEN_EOF_FUNC || t.type == TOKEN_TIMER || t.type == TOKEN_KEY || t.type == TOKEN_STRIG || t.type == TOKEN_ASC || t.type == TOKEN_LEN || t.type == TOKEN_INSTR || t.type == TOKEN_VAL || t.type == TOKEN_PEEK || t.type == TOKEN_VARPTR || t.type == TOKEN_LOF || t.type == TOKEN_LOC) {
+    if ((t.type >= TOKEN_ABS && t.type <= TOKEN_SGN) || t.type == TOKEN_EOF_FUNC || t.type == TOKEN_TIMER || t.type == TOKEN_KEY || t.type == TOKEN_STRIG || t.type == TOKEN_ASC || t.type == TOKEN_LEN || t.type == TOKEN_INSTR || t.type == TOKEN_VAL || t.type == TOKEN_PEEK || t.type == TOKEN_VARPTR || t.type == TOKEN_LOF || t.type == TOKEN_LOC || t.type == TOKEN_CVI || t.type == TOKEN_CVS || t.type == TOKEN_CVD) {
         TokenType ft = t.type;
         int has_arg = 0;
         double arg = 0;
@@ -1641,6 +1710,39 @@ static double primary_tok(TokenStream *ts) {
                 if (var_idx < 0) return 0;
                 if (array_idx >= 0) return 61440.0 + var_idx * 256.0 + array_idx;
                 return 61440.0 + var_idx * 256.0;
+            }
+            if (ft == TOKEN_CVI || ft == TOKEN_CVS || ft == TOKEN_CVD) {
+                char buf[256] = "";
+                int len = 0;
+                Token arg_tok = ts->tokens[ts->pos];
+                if (arg_tok.type == TOKEN_IDENTIFIER && is_string_var(arg_tok.text)) {
+                    int idx = arg_tok.var_idx;
+                    if (idx == -1) idx = find_variable(arg_tok.text);
+                    ts->pos++;
+                    int array_idx = parse_array_index_tok(ts, idx);
+                    len = get_string_variable_raw(idx, array_idx, buf, sizeof(buf));
+                    if (ts->tokens[ts->pos].type == TOKEN_RPAREN) ts->pos++;
+                } else {
+                    parse_string_expression_tok(ts, buf, sizeof(buf));
+                    len = (int)strlen(buf);
+                    if (ts->tokens[ts->pos].type == TOKEN_RPAREN) ts->pos++;
+                }
+                if (ft == TOKEN_CVI) {
+                    int16_t val = 0;
+                    int cpy = (len > 2) ? 2 : len;
+                    if (cpy > 0) memcpy(&val, buf, (size_t)cpy);
+                    return (double)val;
+                } else if (ft == TOKEN_CVS) {
+                    float val = 0.0f;
+                    int cpy = (len > 4) ? 4 : len;
+                    if (cpy > 0) memcpy(&val, buf, (size_t)cpy);
+                    return (double)val;
+                } else {
+                    double val = 0.0;
+                    int cpy = (len > 8) ? 8 : len;
+                    if (cpy > 0) memcpy(&val, buf, (size_t)cpy);
+                    return val;
+                }
             }
             if (ft == TOKEN_ASC || ft == TOKEN_LEN || ft == TOKEN_VAL) {
                 char buf[256] = "";
@@ -1920,7 +2022,7 @@ static double primary(const char **input) {
         get_next_token(input); // consume ')'
         return val;
     }
-    if ((t.type >= TOKEN_ABS && t.type <= TOKEN_SGN) || t.type == TOKEN_EOF_FUNC || t.type == TOKEN_TIMER || t.type == TOKEN_KEY || t.type == TOKEN_STRIG || t.type == TOKEN_ASC || t.type == TOKEN_LEN || t.type == TOKEN_INSTR || t.type == TOKEN_VAL || t.type == TOKEN_PEEK || t.type == TOKEN_VARPTR || t.type == TOKEN_LOF || t.type == TOKEN_LOC) {
+    if ((t.type >= TOKEN_ABS && t.type <= TOKEN_SGN) || t.type == TOKEN_EOF_FUNC || t.type == TOKEN_TIMER || t.type == TOKEN_KEY || t.type == TOKEN_STRIG || t.type == TOKEN_ASC || t.type == TOKEN_LEN || t.type == TOKEN_INSTR || t.type == TOKEN_VAL || t.type == TOKEN_PEEK || t.type == TOKEN_VARPTR || t.type == TOKEN_LOF || t.type == TOKEN_LOC || t.type == TOKEN_CVI || t.type == TOKEN_CVS || t.type == TOKEN_CVD) {
         TokenType ft = t.type;
         const char *saved = *input;
         Token next = get_next_token(input);
@@ -1940,6 +2042,39 @@ static double primary(const char **input) {
                 if (var_idx < 0) return 0;
                 if (array_idx >= 0) return 61440.0 + var_idx * 256.0 + array_idx;
                 return 61440.0 + var_idx * 256.0;
+            }
+            if (ft == TOKEN_CVI || ft == TOKEN_CVS || ft == TOKEN_CVD) {
+                char buf[256] = "";
+                int len = 0;
+                const char *saved_tok = *input;
+                Token arg_tok = get_next_token(input);
+                if (arg_tok.type == TOKEN_IDENTIFIER && is_string_var(arg_tok.text)) {
+                    int idx = find_variable(arg_tok.text);
+                    int array_idx = parse_array_index(input, idx);
+                    len = get_string_variable_raw(idx, array_idx, buf, sizeof(buf));
+                    get_next_token(input); // consume ')'
+                } else {
+                    *input = saved_tok;
+                    parse_string_expression(input, buf, sizeof(buf));
+                    len = (int)strlen(buf);
+                    get_next_token(input); // consume ')'
+                }
+                if (ft == TOKEN_CVI) {
+                    int16_t val = 0;
+                    int cpy = (len > 2) ? 2 : len;
+                    if (cpy > 0) memcpy(&val, buf, (size_t)cpy);
+                    return (double)val;
+                } else if (ft == TOKEN_CVS) {
+                    float val = 0.0f;
+                    int cpy = (len > 4) ? 4 : len;
+                    if (cpy > 0) memcpy(&val, buf, (size_t)cpy);
+                    return (double)val;
+                } else {
+                    double val = 0.0;
+                    int cpy = (len > 8) ? 8 : len;
+                    if (cpy > 0) memcpy(&val, buf, (size_t)cpy);
+                    return val;
+                }
             }
             if (ft == TOKEN_ASC || ft == TOKEN_LEN || ft == TOKEN_VAL) {
                 char buf[256] = "";
