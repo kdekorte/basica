@@ -51,7 +51,7 @@ void repl() {
         if (stop_running) continue;
 
         buffer[strcspn(buffer, "\n")] = 0;
-        interpret_line(buffer, 1);
+        interpret_line(buffer, 1, NULL);
     }
 }
 
@@ -63,6 +63,7 @@ void run_file(const char *filename) {
     }
     char buffer[256];
     int first_line = 1;
+    int last_line_num = 0;
     while (fgets(buffer, sizeof(buffer), f)) {
         buffer[strcspn(buffer, "\n")] = 0;
         // Skip shebang line so .bas files can be marked executable
@@ -70,7 +71,7 @@ void run_file(const char *filename) {
             first_line = 0;
             if (buffer[0] == '#' && buffer[1] == '!') continue;
         }
-        interpret_line(buffer, 1);
+        interpret_line(buffer, 1, &last_line_num);
     }
     fclose(f);
     run_program();

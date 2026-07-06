@@ -4,6 +4,7 @@
 
 void add_line(int line_num, const char *text);
 void list_program();
+Statement* find_label(const char *label);
 void clear_program();
 Statement* get_head();
 Statement* find_line(int line_num);

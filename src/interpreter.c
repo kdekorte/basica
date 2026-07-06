@@ -13,6 +13,15 @@
 #include "interpreter.h"
 #include "lexer.h"
 #include "program.h"
+
+static int resolve_target_line(Token tok) {
+    if (tok.type == TOKEN_NUMBER) return tok.int_val;
+    if (tok.type == TOKEN_IDENTIFIER) {
+        Statement *s = find_label(tok.text);
+        if (s) return s->line_number;
+    }
+    return -1;
+}
 #include "graphics.h"
 #include "audio.h"
 
@@ -2330,7 +2339,7 @@ double evaluate_expression(const char **input) {
     return val;
 }
 
-void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
+void interpret_line_at_ptr(const char **ptr_addr, int is_direct, int *last_line_num) {
     const char *ptr = *ptr_addr;
     Token t = get_next_token(&ptr);
 
@@ -2339,9 +2348,19 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
         return;
     }
 
-    if (t.type == TOKEN_NUMBER && is_direct) {
-        add_line(t.int_val, ptr);
-    } else {
+    if (is_direct) {
+        if (t.type == TOKEN_NUMBER) {
+            if (last_line_num) *last_line_num = t.int_val;
+            add_line(t.int_val, ptr);
+            return;
+        } else if (last_line_num) {
+            *last_line_num += 10;
+            add_line(*last_line_num, *ptr_addr);
+            return;
+        }
+    }
+
+    {
         if (t.type == TOKEN_ON) {
             const char *saved = ptr;
             Token next = get_next_token(&ptr);
@@ -2349,8 +2368,9 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 Token g = get_next_token(&ptr);
                 if (g.type == TOKEN_GOTO) {
                     Token target = get_next_token(&ptr);
-                    if (target.type == TOKEN_NUMBER) {
-                        on_error_goto_line = target.int_val;
+                    int target_line = resolve_target_line(target);
+                    if (target_line != -1) {
+                        on_error_goto_line = target_line;
                         *ptr_addr = ptr;
                         return;
                     }
@@ -2377,12 +2397,11 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
                 }
                 
                 Token target_tok = get_next_token(&ptr);
-                if (target_tok.type != TOKEN_NUMBER) {
+                int target_line = resolve_target_line(target_tok);
+                if (target_line == -1) {
                     report_runtime_error(ERR_SYNTAX_ERROR);
                     return;
                 }
-
-                int target_line = target_tok.int_val;
                 if (next.type == TOKEN_KEY) {
                     int k = (int)n_val;
                     if (k >= 1 && k < 32) {
@@ -3736,9 +3755,9 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct) {
     *ptr_addr = ptr;
 }
 
-void interpret_line(const char *input, int is_direct) {
+void interpret_line(const char *input, int is_direct, int *last_line_num) {
     const char *ptr = input;
-    interpret_line_at_ptr(&ptr, is_direct);
+    interpret_line_at_ptr(&ptr, is_direct, last_line_num);
 }
 
 void run_program() {
@@ -3772,6 +3791,7 @@ void run_program() {
 
     int poll_counter = 0;
     while (curr && !stop_running) {
+        
         if (++poll_counter >= 1000) {
             handle_events();
             if (!graphics_is_active()) fflush(stdout);
@@ -3939,7 +3959,7 @@ void run_program() {
                 Token next_on = ts.tokens[ts.pos];
                 if (next_on.type == TOKEN_ERR || (next_on.type == TOKEN_IDENTIFIER && strcasecmp(next_on.text, "ERROR") == 0)) {
                     const char *temp_ptr = command_start_ptr;
-                    interpret_line_at_ptr(&temp_ptr, 0);
+                    interpret_line_at_ptr(&temp_ptr, 0, NULL);
                     // We need to advance ts.pos to match where interpret_line_at_ptr left off
                     while(ts.pos < exec_stmt->token_count && ts.tokens[ts.pos].type != TOKEN_COLON && ts.tokens[ts.pos].type != TOKEN_EOF) ts.pos++;
                     continue;
@@ -3961,12 +3981,15 @@ void run_program() {
                         break;
                     }
                     ts.pos++;
-                    if (ts.pos >= exec_stmt->token_count || ts.tokens[ts.pos].type != TOKEN_NUMBER) {
+                    if (ts.pos >= exec_stmt->token_count) {
                         report_runtime_error(ERR_SYNTAX_ERROR);
                         break;
                     }
-
-                    int target_line = ts.tokens[ts.pos++].int_val;
+                    int target_line = resolve_target_line(ts.tokens[ts.pos++]);
+                    if (target_line == -1) {
+                        report_runtime_error(ERR_SYNTAX_ERROR);
+                        break;
+                    }
                     if (next_on.type == TOKEN_KEY) {
                         int k = (int)n_val;
                         if (k >= 1 && k < 32) {
@@ -4002,6 +4025,7 @@ void run_program() {
                 }
                 if (count == index) {
                     Token target = ts.tokens[ts.pos++];
+                    int target_line = resolve_target_line(target);
                     if (jump_type.type == TOKEN_GOSUB) {
                     if (gosub_ptr < 32) {
                             gosub_call_stack[gosub_ptr].stmt = exec_stmt;
@@ -4018,8 +4042,9 @@ void run_program() {
                             break;
                         }
                     } else {
-                        curr = find_line(target.int_val);
-                        jumped = 1;
+                        curr = find_line(target_line);
+                        if (!curr) report_runtime_error(ERR_UNDEFINED_LINE_NUMBER);
+                        else jumped = 1;
                         break;
                     }
                 } else {
@@ -4032,6 +4057,7 @@ void run_program() {
             // Handle GOSUB
             case TOKEN_GOSUB: {
                 Token target = ts.tokens[ts.pos++];
+                int target_line = resolve_target_line(target);
                 if (gosub_ptr < 32) {
                     gosub_call_stack[gosub_ptr].stmt = exec_stmt;
                     const char *temp_ptr = exec_stmt->raw_command;
@@ -4040,8 +4066,9 @@ void run_program() {
                     gosub_call_stack[gosub_ptr].event_type = EVENT_NONE;
                     gosub_call_stack[gosub_ptr].event_index = 0;
                     gosub_ptr++;
-                    curr = find_line(target.int_val);
-                    jumped = 1;
+                    curr = find_line(target_line);
+                    if (!curr) report_runtime_error(ERR_UNDEFINED_LINE_NUMBER);
+                    else jumped = 1;
                     break;
                 }
                 else {
@@ -4115,7 +4142,8 @@ void run_program() {
             // Handle GOTO
             case TOKEN_GOTO: {
                 Token target = ts.tokens[ts.pos++];
-                Statement *target_stmt = find_line(target.int_val);
+                int target_line = resolve_target_line(target);
+                Statement *target_stmt = find_line(target_line);
                 if (!target_stmt) {
                     report_runtime_error(ERR_UNDEFINED_LINE_NUMBER);
                 } else {
@@ -4159,6 +4187,10 @@ void run_program() {
                 t = ts.tokens[ts.pos++]; // Skip LET to get variable identifier
                 /* fall through */
             case TOKEN_IDENTIFIER: {
+                if (ts.pos < exec_stmt->token_count && ts.tokens[ts.pos].type == TOKEN_COLON) {
+                    ts.pos++; // Skip colon
+                    continue;
+                }
                 // Direct handling of assignments
                 int idx = t.var_idx;
                 if (idx == -1) idx = find_variable(t.text);
@@ -4186,7 +4218,7 @@ void run_program() {
                 // Fallback for complex commands
                 const char *command_start_ptr = t.start_ptr;
                 const char *temp_ptr = command_start_ptr;
-                interpret_line_at_ptr(&temp_ptr, 0);
+                interpret_line_at_ptr(&temp_ptr, 0, NULL);
                 // Advance TokenStream to match the processed string
                 while(ts.pos < exec_stmt->token_count && ts.tokens[ts.pos].start_ptr < temp_ptr) ts.pos++;
                 break;

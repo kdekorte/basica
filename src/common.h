@@ -52,6 +52,7 @@ typedef struct {
 
 typedef struct Statement {
     int line_number;
+    char label[64];
     char raw_command[256];
     Token *tokens;
     int token_count;

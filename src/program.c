@@ -44,9 +44,11 @@ void add_line(int line_num, const char *text) {
         curr = &((*curr)->next);
     }
 
+    Statement *stmt = NULL;
     if (*curr && (*curr)->line_number == line_num) {
         strncpy((*curr)->raw_command, text, 255);
         tokenize_line(*curr);
+        stmt = *curr;
     } else {
         Statement *new_stmt = malloc(sizeof(Statement));
         if (!new_stmt) return;
@@ -55,7 +57,24 @@ void add_line(int line_num, const char *text) {
         new_stmt->next = *curr;
         *curr = new_stmt;
         tokenize_line(new_stmt);
+        stmt = new_stmt;
     }
+
+    if (stmt->token_count > 1 && stmt->tokens[0].type == TOKEN_IDENTIFIER && stmt->tokens[1].type == TOKEN_COLON) {
+        strncpy(stmt->label, stmt->tokens[0].text, 63);
+        stmt->label[63] = '\0';
+    } else {
+        stmt->label[0] = '\0';
+    }
+}
+
+Statement* find_label(const char *label) {
+    Statement *curr = head;
+    while (curr) {
+        if (curr->label[0] != '\0' && strcasecmp(curr->label, label) == 0) return curr;
+        curr = curr->next;
+    }
+    return NULL;
 }
 
 Statement* find_line(int line_num) {

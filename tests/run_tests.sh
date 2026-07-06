@@ -113,6 +113,7 @@ TESTS=(
   "tests/def_types"
   "tests/auto_screenshot"
   "tests/graphics_primitives"
+  "tests/labels_no_lines"
 )
 
 for t in "${TESTS[@]}"; do
