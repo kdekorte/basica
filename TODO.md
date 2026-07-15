@@ -19,7 +19,7 @@
 
 ## Graphics
 
-- Implement `WINDOW` and `VIEW` for custom coordinate mapping and viewports.
+- ~~Implement `WINDOW` and `VIEW` for custom coordinate mapping and viewports.~~ ✅ Done
 
 ## Testing and project hygiene
 

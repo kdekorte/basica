@@ -145,8 +145,10 @@ static const KeywordMap keyword_table[] = {
     {"USING", TOKEN_USING},
     {"VAL", TOKEN_VAL},
     {"VARPTR", TOKEN_VARPTR},
+    {"VIEW", TOKEN_VIEW},
     {"WEND", TOKEN_WEND},
     {"WHILE", TOKEN_WHILE},
+    {"WINDOW", TOKEN_WINDOW},
     {"XOR", TOKEN_XOR},
 };
 

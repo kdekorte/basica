@@ -18,8 +18,10 @@ static int canvas_height = 400;
 static int cursor_x = 0;
 static int cursor_y = 0;
 
-static int gfx_cursor_x = 0;
-static int gfx_cursor_y = 0;
+static double gfx_cursor_x = 0;
+static double gfx_cursor_y = 0;
+
+
 
 static TTF_Font *font = NULL;
 static char font_path[512] = "";
@@ -34,12 +36,130 @@ static int mode_res_h = 200;
 static int text_columns = 80;
 static int text_rows = 25;
 
-void get_graphics_cursor(int *x, int *y) {
+static SDL_Color get_graphics_color(int color_value);
+
+static int view_active = 0;
+static int view_screen = 0;
+static int view_x1 = 0, view_y1 = 0, view_x2 = -1, view_y2 = -1;
+
+static int window_active = 0;
+static int window_screen = 0;
+static double win_x1 = 0, win_y1 = 0, win_x2 = 0, win_y2 = 0;
+
+static void transform_coords(double x, double y, int *px, int *py) {
+    if (window_active) {
+        double px_d = view_x1 + (x - win_x1) * (view_x2 - view_x1) / (win_x2 - win_x1);
+        double py_d;
+        if (window_screen) {
+            py_d = view_y1 + (y - win_y1) * (view_y2 - view_y1) / (win_y2 - win_y1);
+        } else {
+            py_d = view_y2 + (y - win_y1) * (view_y1 - view_y2) / (win_y2 - win_y1);
+        }
+        *px = (int)(px_d + (px_d < 0 ? -0.5 : 0.5));
+        *py = (int)(py_d + (py_d < 0 ? -0.5 : 0.5));
+    } else if (view_active && !view_screen) {
+        *px = (int)x + view_x1;
+        *py = (int)y + view_y1;
+    } else {
+        *px = (int)x;
+        *py = (int)y;
+    }
+}
+
+
+static void apply_clipping() {
+    if (!renderer || !canvas) return;
+    SDL_SetRenderTarget(renderer, canvas);
+    double xs = (double)canvas_width / mode_res_w;
+    double ys = (double)canvas_height / mode_res_h;
+    SDL_Rect r;
+    if (view_active) {
+        r.x = (int)(view_x1 * xs);
+        r.y = (int)(view_y1 * ys);
+        r.w = (int)((view_x2 - view_x1 + 1) * xs + 0.99);
+        r.h = (int)((view_y2 - view_y1 + 1) * ys + 0.99);
+    } else {
+        r.x = 0; r.y = 0; r.w = canvas_width; r.h = canvas_height;
+    }
+    SDL_SetRenderClipRect(renderer, &r);
+}
+
+static void remove_clipping() {
+    if (!renderer || !canvas) return;
+    SDL_SetRenderTarget(renderer, canvas);
+    SDL_SetRenderClipRect(renderer, NULL);
+}
+
+static int clip_point(int px, int py) {
+    if (view_active) {
+        if (px < view_x1 || px > view_x2 || py < view_y1 || py > view_y2) return 0;
+    } else {
+        if (px < 0 || px >= mode_res_w || py < 0 || py >= mode_res_h) return 0;
+    }
+    return 1;
+}
+
+void graphics_set_window(int use_screen, double x1, double y1, double x2, double y2) {
+    window_active = 1;
+    window_screen = use_screen;
+    win_x1 = x1; win_y1 = y1; win_x2 = x2; win_y2 = y2;
+}
+void graphics_reset_window() {
+    window_active = 0;
+}
+void graphics_set_view(int use_screen, int x1, int y1, int x2, int y2, int color, int boundary) {
+    if (!renderer || !canvas) return;
+    SDL_SetRenderTarget(renderer, canvas);
+    view_active = 1;
+    view_screen = use_screen;
+    view_x1 = x1; view_y1 = y1; view_x2 = x2; view_y2 = y2;
+    // We should draw background color and boundary if needed
+    // But for now, just set viewport
+    // If color >= 0, fill viewport
+    // If boundary >= 0, draw border
+    if (color >= 0) {
+        if (!renderer || !canvas) return;
+        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+        SDL_Color draw_color = get_graphics_color(color);
+        SDL_SetRenderDrawColor(renderer, draw_color.r, draw_color.g, draw_color.b, draw_color.a);
+        double xs = (double)canvas_width / mode_res_w;
+        double ys = (double)canvas_height / mode_res_h;
+        SDL_FRect r = { (float)(x1*xs), (float)(y1*ys), (float)((x2-x1+1)*xs), (float)((y2-y1+1)*ys) };
+        SDL_RenderFillRect(renderer, &r);
+        update_graphics();
+    }
+    if (boundary >= 0) {
+        if (!renderer || !canvas) return;
+        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+        SDL_Color draw_color = get_graphics_color(boundary);
+        SDL_SetRenderDrawColor(renderer, draw_color.r, draw_color.g, draw_color.b, draw_color.a);
+        double xs = (double)canvas_width / mode_res_w;
+        double ys = (double)canvas_height / mode_res_h;
+        SDL_FRect top = { (float)(x1*xs), (float)(y1*ys), (float)((x2-x1+1)*xs), (float)ys };
+        SDL_FRect bottom = { (float)(x1*xs), (float)(y2*ys), (float)((x2-x1+1)*xs), (float)ys };
+        SDL_FRect left = { (float)(x1*xs), (float)(y1*ys), (float)xs, (float)((y2-y1+1)*ys) };
+        SDL_FRect right = { (float)(x2*xs), (float)(y1*ys), (float)xs, (float)((y2-y1+1)*ys) };
+        SDL_RenderFillRect(renderer, &top);
+        SDL_RenderFillRect(renderer, &bottom);
+        SDL_RenderFillRect(renderer, &left);
+        SDL_RenderFillRect(renderer, &right);
+        update_graphics();
+    }
+}
+void graphics_reset_view() {
+    if (!renderer || !canvas) return;
+    SDL_SetRenderTarget(renderer, canvas);
+    view_active = 0;
+    view_x1 = 0; view_y1 = 0; view_x2 = mode_res_w - 1; view_y2 = mode_res_h - 1;
+    remove_clipping();
+}
+
+void get_graphics_cursor(double *x, double *y) {
     if (x) *x = gfx_cursor_x;
     if (y) *y = gfx_cursor_y;
 }
 
-void set_graphics_cursor(int x, int y) {
+void set_graphics_cursor(double x, double y) {
     gfx_cursor_x = x;
     gfx_cursor_y = y;
 }
@@ -110,7 +230,7 @@ void set_screen_mode(int mode) {
     if (mode_res_w <= 320) text_columns = 40; else text_columns = 80;
     if (mode_res_h == 200) text_rows = 25;
     else if (mode_res_h == 350) text_rows = 35;
-    else if (mode_res_h == 480) text_rows = 25; // standard 80x25 layout for 640x480
+    else if (mode_res_h == 480) text_rows = 30; // standard 80x30 layout for 640x480
     else text_rows = 25;
 
     current_col_width = canvas_width / text_columns;
@@ -251,6 +371,7 @@ static void clear_text_cell(int x, int y) {
 
 void graphics_print(const char *text) {
     if (!font || !canvas || !text) return;
+    SDL_SetRenderTarget(renderer, canvas);
     
     while (*text) {
         if (*text == '\n') {
@@ -498,8 +619,12 @@ static SDL_Color get_graphics_color(int color_value) {
     }
 }
 
-void set_pixel(int x, int y, int color) {
+void set_pixel(double user_x, double user_y, int color) {
     if (!renderer || !canvas) return;
+    SDL_SetRenderTarget(renderer, canvas);
+    int x, y;
+    transform_coords(user_x, user_y, &x, &y);
+    if (!clip_point(x, y)) return;
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE); // Ensure opaque drawing
     SDL_SetRenderDrawColor(renderer, get_graphics_color(color).r, get_graphics_color(color).g, get_graphics_color(color).b, get_graphics_color(color).a);
     
@@ -512,7 +637,10 @@ void set_pixel(int x, int y, int color) {
     gfx_cursor_y = y;
 }
 
-int get_pixel(int x, int y) {
+int get_pixel(double user_x, double user_y) {
+    int x, y;
+    transform_coords(user_x, user_y, &x, &y);
+    if (!clip_point(x, y)) return -1;
     if (!renderer || !canvas) return 0;
     
     // Map logical coordinates to canvas resolution
@@ -564,7 +692,13 @@ int graphics_save_screenshot(const char *filename) {
     return result;
 }
 
-void draw_line(int x1, int y1, int x2, int y2, int color, int fill) {
+void draw_line(double ux1, double uy1, double ux2, double uy2, int color, int fill) {
+    int x1, y1, x2, y2;
+    transform_coords(ux1, uy1, &x1, &y1);
+    transform_coords(ux2, uy2, &x2, &y2);
+    gfx_cursor_x = ux2; gfx_cursor_y = uy2;
+    apply_clipping();
+
     if (!renderer || !canvas) return;
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE); // Ensure opaque drawing
     SDL_Color draw_color = get_graphics_color(color);
@@ -600,13 +734,23 @@ void draw_line(int x1, int y1, int x2, int y2, int color, int fill) {
     } else {
         SDL_RenderLine(renderer, (float)sx1, (float)sy1, (float)sx2, (float)sy2);
     }
-    gfx_cursor_x = x2;
-    gfx_cursor_y = y2;
+    remove_clipping();
     update_graphics();
 }
 
-void draw_circle(int cx, int cy, int radius, int color, int fill) {
-    if (!renderer || !canvas || radius <= 0) return;
+void draw_circle(double ucx, double ucy, double uradius, int color, int fill) {
+    if (!renderer || !canvas) return;
+    int cx, cy;
+    transform_coords(ucx, ucy, &cx, &cy);
+    // Approximate physical radius from x scale
+    int p_cx, p_cy;
+    transform_coords(ucx + uradius, ucy, &p_cx, &p_cy);
+    int radius = abs(p_cx - cx);
+    if (radius == 0 && uradius > 0) radius = 1;
+    if (radius <= 0) return;
+    
+    apply_clipping();
+
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE); // Ensure opaque drawing
     SDL_Color draw_color = get_graphics_color(color);
     SDL_SetRenderDrawColor(renderer, draw_color.r, draw_color.g, draw_color.b, draw_color.a);
@@ -652,6 +796,7 @@ void draw_circle(int cx, int cy, int radius, int color, int fill) {
     }
     gfx_cursor_x = cx;
     gfx_cursor_y = cy;
+    remove_clipping();
     update_graphics();
 }
 
@@ -659,10 +804,15 @@ typedef struct {
     int x, y;
 } Point;
 
-void draw_paint(int x, int y, int paint_color, int border_color) {
+void draw_paint(double ux, double uy, int paint_color, int border_color) {
     if (!renderer || !canvas) return;
+    int x, y;
+    transform_coords(ux, uy, &x, &y);
+    if (!clip_point(x, y)) return;
+    apply_clipping();
     
     SDL_Surface *raw_surf = SDL_RenderReadPixels(renderer, NULL);
+    remove_clipping();
     if (!raw_surf) return;
     // Convert to canvas format to ensure color mapping matches the texture
     SDL_Surface *surf = SDL_ConvertSurface(raw_surf, SDL_PIXELFORMAT_RGBA8888);

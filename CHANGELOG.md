@@ -2,6 +2,11 @@
 
 All notable changes to this project are recorded in this file.
 
+## 2026-07-06
+
+- **Optional Line Numbers and Labels**: Line numbers are now optional. When omitted, the file line number is used internally (incrementing by 10). Programs may use named labels (`my_label:`) as jump targets for `GOTO`, `GOSUB`, `ON...GOTO/GOSUB`, `IF...THEN`, and `ON ERROR GOTO`.
+- **WINDOW and VIEW**: Implemented `WINDOW` for custom logical coordinate mapping and `VIEW` for physical viewport clipping. All drawing commands (`PSET`, `LINE`, `CIRCLE`, `PAINT`, `DRAW`) now accept floating-point logical coordinates transformed through the active window/viewport. Supports `WINDOW SCREEN` (Y-down) and `VIEW SCREEN` (absolute screen coordinates) variants.
+
 ## 2026-06-17
 
 - **Headless Graphics Mode**: Add `--headless` command-line option to run graphics and screenshots headlessly (uses standard POSIX dummy video driver and hidden window). (commit ca8d271)

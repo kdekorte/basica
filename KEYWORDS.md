@@ -1,12 +1,23 @@
 # Supported BASICA Keywords and Syntax
 
+## Line Numbers and Labels
+
+Line numbers are optional. Programs may use traditional line numbers (`10 PRINT "Hi"`),
+labels (`my_label: PRINT "Hi"`), or mix-free-form lines with no prefix at all. When
+line numbers are omitted, file line numbers are used internally (incrementing by 10).
+
+Labels are identifiers followed by a colon (`my_label:`). They may appear at the start
+of a line, optionally sharing the line with a statement (`loop: PRINT X`). Labels can
+be used anywhere a line number is accepted: `GOTO`, `GOSUB`, `ON...GOTO/GOSUB`,
+`IF...THEN`, and `ON ERROR GOTO`.
+
 ## Control Flow and Program Structure
 - `END`: Terminates program execution.
 - `FOR var = start TO end [STEP step] ... NEXT [var]`: Standard loop.
-- `GOSUB line ... RETURN`: Subroutine call and return.
-- `GOTO line`: Unconditional jump.
-- `IF condition THEN [line | statement] [ELSE statement]`: Conditional execution.
-- `ON expression {GOTO | GOSUB} line1[, line2...]`: Computed jump.
+- `GOSUB line|label ... RETURN`: Subroutine call and return.
+- `GOTO line|label`: Unconditional jump.
+- `IF condition THEN [line | label | statement] [ELSE statement]`: Conditional execution.
+- `ON expression {GOTO | GOSUB} line1|label1[, line2|label2...]`: Computed jump.
 - `ON KEY(n) GOSUB line`: Enables a key trap for key `n`.
 - `ON TIMER(n) GOSUB line`: Enables a periodic timer trap.
 - `ON ERROR GOTO line`: Error trapping.
@@ -79,6 +90,8 @@
 - `SCREENSHOT "filename.png"`: Saves the current graphics window content to a file. Supports `.png` and `.jpg`/`.jpeg` extensions.
 - `SLEEP ms`: Pauses for a specified number of milliseconds.
 - `SOUND freq, duration`: Produces a tone.
+- `VIEW [(x1,y1)-(x2,y2)[, [fillcolor][, border]]]`: Defines a physical viewport (in screen pixels). All subsequent graphics commands are clipped to this region. Coordinates are relative to the viewport origin unless `VIEW SCREEN` is used (absolute). Omit coordinates to reset.
+- `WINDOW [(x1,y1)-(x2,y2)]`: Maps a custom logical coordinate system onto the current viewport. After this call, all graphics commands accept logical coordinates. `(x1,y1)` is the bottom-left and `(x2,y2)` is the top-right by default (Y increases upward, like math). Use `WINDOW SCREEN` to keep Y increasing downward. Omit coordinates to reset to screen coordinates.
 
 ## Numeric Functions
 - `ABS(n)`, `SQR(n)`, `SIN(n)`, `COS(n)`, `TAN(n)`, `ATN(n)`
