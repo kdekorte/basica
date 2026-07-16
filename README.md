@@ -2,7 +2,32 @@
 
 A small IBM BASICA-compatible interpreter clone written in C.
 
-## Build
+## Install with Homebrew (macOS)
+
+The easiest way to install basica on macOS is with [Homebrew](https://brew.sh):
+
+```sh
+brew tap kdekorte/basica https://github.com/kdekorte/basica.git
+brew install basica
+```
+
+This will automatically install all required SDL3 dependencies.
+
+To upgrade to a newer version:
+
+```sh
+brew update
+brew upgrade basica
+```
+
+To uninstall:
+
+```sh
+brew uninstall basica
+brew untap kdekorte/basica
+```
+
+## Build from Source
 
 Requirements:
 - `gcc`
@@ -14,6 +39,7 @@ Build with:
 ```sh
 make
 ```
+
 
 ## Run
 
