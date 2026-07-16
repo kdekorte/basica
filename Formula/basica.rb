@@ -2,7 +2,7 @@ class Basica < Formula
   desc "Small IBM BASICA-compatible interpreter clone written in C"
   homepage "https://github.com/kdekorte/basica"
   url "https://github.com/kdekorte/basica/archive/refs/tags/v0.99.1.tar.gz"
-  # sha256 "REPLACE_WITH_ACTUAL_SHA256_AFTER_TAGGING_RELEASE"
+  sha256 "0019dfc4b32d63c1392aa264aed2253c1e0c2fb09216f8e2cc269bbfb8bb49b5"
   license "MIT"
 
   depends_on "pkg-config" => :build
