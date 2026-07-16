@@ -6,8 +6,11 @@
 #   ./release.sh              Show current version and status
 #   ./release.sh tag          Tag the current commit and push
 #   ./release.sh package      Build the distribution zip
+#   ./release.sh release      Create GitHub release and upload assets
 #   ./release.sh formula      Update the Homebrew formula with the correct version and SHA256
-#   ./release.sh all          Run all steps: tag, package, and formula update
+#   ./release.sh all          Run all steps: tag, package, release, and formula update
+#
+# Requires: gh (GitHub CLI), authenticated via `gh auth login`
 #
 
 set -euo pipefail
@@ -15,7 +18,8 @@ set -euo pipefail
 VERSION=$(grep 'BASICA_VERSION' src/common.h | head -1 | sed 's/.*"\(.*\)".*/\1/')
 TAG="v${VERSION}"
 FORMULA="Formula/basica.rb"
-ARCHIVE_URL="https://github.com/kdekorte/basica/archive/refs/tags/${TAG}.tar.gz"
+PACKAGE_NAME="basica-${VERSION}"
+ARCHIVE_URL="https://github.com/kdekorte/basica/releases/download/${TAG}/${PACKAGE_NAME}.zip"
 
 info()    { printf "\033[1;34m==>\033[0m \033[1m%s\033[0m\n" "$1"; }
 success() { printf "\033[1;32m==>\033[0m \033[1m%s\033[0m\n" "$1"; }
@@ -30,9 +34,17 @@ show_status() {
     echo ""
 
     if git rev-parse "${TAG}" >/dev/null 2>&1; then
-        success "Tag ${TAG} exists"
+        success "Tag ${TAG} exists locally"
     else
         echo "  Tag ${TAG} has not been created yet"
+    fi
+
+    if command -v gh >/dev/null 2>&1; then
+        if gh release view "${TAG}" >/dev/null 2>&1; then
+            success "GitHub release ${TAG} exists"
+        else
+            echo "  GitHub release ${TAG} has not been created yet"
+        fi
     fi
 }
 
@@ -56,7 +68,58 @@ do_tag() {
 do_package() {
     info "Building distribution package"
     make package
-    success "Created basica-${VERSION}.zip"
+    success "Created ${PACKAGE_NAME}.zip"
+}
+
+do_release() {
+    info "Creating GitHub release ${TAG}"
+
+    command -v gh >/dev/null 2>&1 || error "GitHub CLI (gh) is required. Install with: brew install gh"
+    gh auth status >/dev/null 2>&1 || error "Not authenticated. Run: gh auth login"
+
+    if ! git rev-parse "${TAG}" >/dev/null 2>&1; then
+        error "Tag ${TAG} does not exist. Run './release.sh tag' first."
+    fi
+
+    # Build the binary
+    info "Building basica binary"
+    make clean
+    make
+    if [ ! -f basica ]; then
+        error "Binary 'basica' not found after build."
+    fi
+
+    # Build the source package
+    info "Building source package"
+    make package
+    if [ ! -f "${PACKAGE_NAME}.zip" ]; then
+        error "Package '${PACKAGE_NAME}.zip' not found after build."
+    fi
+
+    # Create the release (or skip if it already exists)
+    if gh release view "${TAG}" >/dev/null 2>&1; then
+        info "GitHub release ${TAG} already exists, uploading assets (overwriting if present)"
+        gh release upload "${TAG}" \
+            "${PACKAGE_NAME}.zip" \
+            basica \
+            --clobber
+    else
+        info "Creating new GitHub release ${TAG}"
+        gh release create "${TAG}" \
+            "${PACKAGE_NAME}.zip" \
+            basica \
+            --title "Basica ${VERSION}" \
+            --generate-notes
+    fi
+
+    success "GitHub release ${TAG} created with assets:"
+    echo "  - ${PACKAGE_NAME}.zip  (source package)"
+    echo "  - basica              (macOS binary)"
+
+    # Clean up build artifacts
+    info "Cleaning up build artifacts"
+    make clean
+    rm -f "${PACKAGE_NAME}.zip"
 }
 
 do_formula() {
@@ -71,13 +134,13 @@ do_formula() {
     SHA256=$(curl -sL "${ARCHIVE_URL}" | shasum -a 256 | awk '{print $1}')
 
     if [ -z "${SHA256}" ] || [ "${#SHA256}" -ne 64 ]; then
-        error "Failed to compute SHA256. Is the tag pushed to GitHub?"
+        error "Failed to compute SHA256. Has the release been published? Run './release.sh release' first."
     fi
 
     info "SHA256: ${SHA256}"
 
     # Update the URL version
-    sed -i '' "s|url \"https://github.com/kdekorte/basica/archive/refs/tags/v.*\.tar\.gz\"|url \"${ARCHIVE_URL}\"|" "${FORMULA}"
+    sed -i '' "s|url \"https://github.com/kdekorte/basica/releases/download/v[^/]*/basica-.*\.zip\"|url \"${ARCHIVE_URL}\"|" "${FORMULA}"
 
     # Update or insert sha256 line
     if grep -q '# sha256' "${FORMULA}"; then
@@ -105,7 +168,7 @@ do_formula() {
 do_all() {
     do_tag
     echo ""
-    do_package
+    do_release
     echo ""
     do_formula
 }
@@ -116,17 +179,19 @@ case "${1:-status}" in
     status)   show_status ;;
     tag)      do_tag ;;
     package)  do_package ;;
+    release)  do_release ;;
     formula)  do_formula ;;
     all)      do_all ;;
     *)
-        echo "Usage: $0 {status|tag|package|formula|all}"
+        echo "Usage: $0 {status|tag|package|release|formula|all}"
         echo ""
         echo "Commands:"
         echo "  status    Show current version and release status (default)"
         echo "  tag       Create and push a git tag for the current version"
         echo "  package   Build the basica-VERSION.zip distribution archive"
+        echo "  release   Create GitHub release and upload source + binary"
         echo "  formula   Update the Homebrew formula URL and SHA256"
-        echo "  all       Run tag, package, and formula in sequence"
+        echo "  all       Run tag, release, and formula in sequence"
         exit 1
         ;;
 esac
