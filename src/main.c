@@ -11,6 +11,7 @@
 static int quiet_mode = 0;
 static int exit_on_finish = 0;
 
+/* print_usage - Display command-line usage and available options */
 static void print_usage(const char *prog) {
     printf("Usage: %s [options] [program.bas]\n", prog);
     printf("Options:\n");
@@ -22,11 +23,16 @@ static void print_usage(const char *prog) {
     printf("  -h, --help       show this help message\n");
 }
 
+/* handle_sigint - SIGINT (Ctrl+C) signal handler; sets the stop flag to
+ * interrupt a running BASIC program gracefully */
 void handle_sigint(int sig) {
     (void)sig;
     stop_running = 1;
 }
 
+/* repl - Read-Eval-Print Loop for interactive mode. Displays the startup
+ * header and "Ok" prompt, reads lines from either the graphics window or
+ * stdin, and feeds each line to the interpreter */
 void repl() {
     char buffer[256];
     int active = graphics_is_active();
@@ -55,6 +61,10 @@ void repl() {
     }
 }
 
+/* run_file - Load a BASIC program from the given file, store all numbered
+ * lines, then execute with run_program(). Skips shebang lines so .bas files
+ * can be made directly executable. Waits for a keypress before closing the
+ * graphics window unless exit-on-finish mode is enabled */
 void run_file(const char *filename) {
     FILE *f = fopen(filename, "r");
     if (!f) {
@@ -83,6 +93,9 @@ void run_file(const char *filename) {
     }
 }
 
+/* main - Entry point. Parses command-line arguments, optionally initializes
+ * the graphics subsystem, then either runs a .bas file or enters the
+ * interactive REPL */
 int main(int argc, char **argv) {
     int use_window = 0;
     int headless = 0;

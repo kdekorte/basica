@@ -10,6 +10,9 @@ static Statement **line_index = NULL;
 static int line_index_count = 0;
 static int index_dirty = 1;
 
+/* update_line_index - Rebuild the sorted array of Statement pointers used
+ * for binary search in find_line(). Only rebuilds when the index has been
+ * marked dirty by an add/delete/clear operation */
 static void update_line_index() {
     if (!index_dirty) return;
     if (line_index) {
@@ -37,6 +40,10 @@ static void update_line_index() {
     }
 }
 
+/* add_line - Insert or replace a numbered BASIC line in the program.
+ * Lines are kept in ascending order by line number. If a line with the
+ * same number already exists its text and tokens are replaced. Also
+ * extracts a label (e.g. "myLabel:") from the first token if present */
 void add_line(int line_num, const char *text) {
     index_dirty = 1;
     Statement **curr = &head;
@@ -68,6 +75,8 @@ void add_line(int line_num, const char *text) {
     }
 }
 
+/* find_label - Search the program for a statement whose label matches
+ * the given string (case-insensitive). Returns NULL if not found */
 Statement* find_label(const char *label) {
     Statement *curr = head;
     while (curr) {
@@ -77,6 +86,8 @@ Statement* find_label(const char *label) {
     return NULL;
 }
 
+/* find_line - Look up a statement by line number using binary search on
+ * the line index. Falls back to a linear scan if the index is empty */
 Statement* find_line(int line_num) {
     update_line_index();
     if (line_index && line_index_count > 0) {
@@ -97,6 +108,8 @@ Statement* find_line(int line_num) {
     return NULL;
 }
 
+/* find_next_statement - Return the first statement with a line number
+ * strictly greater than the given line number, or NULL if none */
 Statement* find_next_statement(int line_num) {
     Statement *curr = head;
     while (curr) {
@@ -106,6 +119,8 @@ Statement* find_next_statement(int line_num) {
     return NULL;
 }
 
+/* list_program - Print all stored program lines in order via basic_output,
+ * implementing the LIST command */
 void list_program() {
     Statement *curr = head;
     while (curr) {
@@ -116,6 +131,8 @@ void list_program() {
     }
 }
 
+/* clear_program - Free all statements and reset the program storage,
+ * implementing the NEW command */
 void clear_program() {
     index_dirty = 1;
     Statement *curr = head;
@@ -128,6 +145,8 @@ void clear_program() {
     head = NULL;
 }
 
+/* delete_line - Remove a single line from the program by line number.
+ * Frees the statement and its tokens */
 void delete_line(int line_num) {
     index_dirty = 1;
     Statement **curr = &head;
@@ -143,4 +162,5 @@ void delete_line(int line_num) {
     }
 }
 
+/* get_head - Return the first statement in the program linked list */
 Statement* get_head() { return head; }
