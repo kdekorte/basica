@@ -101,13 +101,11 @@ do_release() {
         info "GitHub release ${TAG} already exists, uploading assets (overwriting if present)"
         gh release upload "${TAG}" \
             "${PACKAGE_NAME}.zip" \
-            basika \
             --clobber
     else
         info "Creating new GitHub release ${TAG}"
         gh release create "${TAG}" \
             "${PACKAGE_NAME}.zip" \
-            basika \
             --title "Basika ${VERSION}" \
             --generate-notes
     fi
