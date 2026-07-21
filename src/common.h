@@ -1,7 +1,7 @@
 #ifndef COMMON_H
 #define COMMON_H
 
-#define BASIKA_VERSION "0.99.1"
+#define BASIKA_VERSION "0.99.2"
 
 typedef enum {
     TOKEN_NUMBER, TOKEN_STRING, TOKEN_IDENTIFIER,
