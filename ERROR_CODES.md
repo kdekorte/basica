@@ -1,6 +1,6 @@
-# Basica Error Codes
+# Basika Error Codes
 
-This document lists the runtime error codes supported by Basica. These codes can be retrieved using the `ERR` variable within a BASIC program, and the line number of the last error can be retrieved using `ERL`.
+This document lists the runtime error codes supported by Basika. These codes can be retrieved using the `ERR` variable within a BASIC program, and the line number of the last error can be retrieved using `ERL`.
 
 | Code | Message | Description |
 |------|---------|-------------|

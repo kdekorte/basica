@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# release.sh - Release management for basica
+# release.sh - Release management for basika
 #
 # Usage:
 #   ./release.sh              Show current version and status
@@ -15,18 +15,18 @@
 
 set -euo pipefail
 
-VERSION=$(grep 'BASICA_VERSION' src/common.h | head -1 | sed 's/.*"\(.*\)".*/\1/')
+VERSION=$(grep 'BASIKA_VERSION' src/common.h | head -1 | sed 's/.*"\(.*\)".*/\1/')
 TAG="v${VERSION}"
-FORMULA="Formula/basica.rb"
-PACKAGE_NAME="basica-${VERSION}"
-ARCHIVE_URL="https://github.com/kdekorte/basica/releases/download/${TAG}/${PACKAGE_NAME}.zip"
+FORMULA="Formula/basika.rb"
+PACKAGE_NAME="basika-${VERSION}"
+ARCHIVE_URL="https://github.com/kdekorte/basika/releases/download/${TAG}/${PACKAGE_NAME}.zip"
 
 info()    { printf "\033[1;34m==>\033[0m \033[1m%s\033[0m\n" "$1"; }
 success() { printf "\033[1;32m==>\033[0m \033[1m%s\033[0m\n" "$1"; }
 error()   { printf "\033[1;31mError:\033[0m %s\n" "$1" >&2; exit 1; }
 
 show_status() {
-    info "Basica release status"
+    info "Basika release status"
     echo "  Version:      ${VERSION}"
     echo "  Tag:          ${TAG}"
     echo "  Formula:      ${FORMULA}"
@@ -52,7 +52,7 @@ do_tag() {
     info "Tagging release ${TAG}"
 
     if git rev-parse "${TAG}" >/dev/null 2>&1; then
-        error "Tag ${TAG} already exists. Bump BASICA_VERSION in src/common.h first."
+        error "Tag ${TAG} already exists. Bump BASIKA_VERSION in src/common.h first."
     fi
 
     if ! git diff --quiet || ! git diff --cached --quiet; then
@@ -82,11 +82,11 @@ do_release() {
     fi
 
     # Build the binary
-    info "Building basica binary"
+    info "Building basika binary"
     make clean
     make
-    if [ ! -f basica ]; then
-        error "Binary 'basica' not found after build."
+    if [ ! -f basika ]; then
+        error "Binary 'basika' not found after build."
     fi
 
     # Build the source package
@@ -101,20 +101,20 @@ do_release() {
         info "GitHub release ${TAG} already exists, uploading assets (overwriting if present)"
         gh release upload "${TAG}" \
             "${PACKAGE_NAME}.zip" \
-            basica \
+            basika \
             --clobber
     else
         info "Creating new GitHub release ${TAG}"
         gh release create "${TAG}" \
             "${PACKAGE_NAME}.zip" \
-            basica \
-            --title "Basica ${VERSION}" \
+            basika \
+            --title "Basika ${VERSION}" \
             --generate-notes
     fi
 
     success "GitHub release ${TAG} created with assets:"
     echo "  - ${PACKAGE_NAME}.zip  (source package)"
-    echo "  - basica              (macOS binary)"
+    echo "  - basika              (macOS binary)"
 
     # Clean up build artifacts
     info "Cleaning up build artifacts"
@@ -140,7 +140,7 @@ do_formula() {
     info "SHA256: ${SHA256}"
 
     # Update the URL version
-    sed -i '' "s|url \"https://github.com/kdekorte/basica/releases/download/v[^/]*/basica-.*\.zip\"|url \"${ARCHIVE_URL}\"|" "${FORMULA}"
+    sed -i '' "s|url \"https://github.com/kdekorte/basika/releases/download/v[^/]*/basika-.*\.zip\"|url \"${ARCHIVE_URL}\"|" "${FORMULA}"
 
     # Update or insert sha256 line
     if grep -q '# sha256' "${FORMULA}"; then
@@ -188,7 +188,7 @@ case "${1:-status}" in
         echo "Commands:"
         echo "  status    Show current version and release status (default)"
         echo "  tag       Create and push a git tag for the current version"
-        echo "  package   Build the basica-VERSION.zip distribution archive"
+        echo "  package   Build the basika-VERSION.zip distribution archive"
         echo "  release   Create GitHub release and upload source + binary"
         echo "  formula   Update the Homebrew formula URL and SHA256"
         echo "  all       Run tag, release, and formula in sequence"

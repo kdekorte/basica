@@ -1,14 +1,14 @@
-# Basica
+# Basika
 
 A small IBM BASICA-compatible interpreter clone written in C.
 
 ## Install with Homebrew (macOS)
 
-The easiest way to install basica on macOS is with [Homebrew](https://brew.sh):
+The easiest way to install basika on macOS is with [Homebrew](https://brew.sh):
 
 ```sh
-brew tap kdekorte/basica https://github.com/kdekorte/basica.git
-brew install basica
+brew tap kdekorte/basika https://github.com/kdekorte/basika.git
+brew install basika
 ```
 
 This will automatically install all required SDL3 dependencies.
@@ -17,14 +17,14 @@ To upgrade to a newer version:
 
 ```sh
 brew update
-brew upgrade basica
+brew upgrade basika
 ```
 
 To uninstall:
 
 ```sh
-brew uninstall basica
-brew untap kdekorte/basica
+brew uninstall basika
+brew untap kdekorte/basika
 ```
 
 ## Build from Source
@@ -46,37 +46,37 @@ make
 Run a BASIC program:
 
 ```sh
-./basica demo/hello.bas
+./basika demo/hello.bas
 ```
 
 Enable graphics window mode:
 
 ```sh
-./basica -w demo/hello.bas
+./basika -w demo/hello.bas
 ```
 
 Suppress startup output and REPL prompts:
 
 ```sh
-./basica -q demo/hello.bas
+./basika -q demo/hello.bas
 ```
 
 Exit immediately after finish in graphics mode (for automation/screenshots):
 
 ```sh
-./basica -w -x demo/hello.bas
+./basika -w -x demo/hello.bas
 ```
 
 Run in headless graphics mode (virtual framebuffer without showing a window, e.g. for CI/CD tests):
 
 ```sh
-./basica --headless demo/hello.bas
+./basika --headless demo/hello.bas
 ```
 
 Show help:
 
 ```sh
-./basica -h
+./basika -h
 ```
 
 ## Test
@@ -89,7 +89,7 @@ make test
 
 ## Supported features
 
-Basica supports a wide range of IBM BASICA-compatible commands, including file I/O, graphics, sound, and robust control flow. 
+Basika supports a wide range of IBM BASICA-compatible commands, including file I/O, graphics, sound, and robust control flow. 
 
 For a full list of supported commands and their exact syntax, please refer to KEYWORDS.md.
 

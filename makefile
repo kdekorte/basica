@@ -5,12 +5,12 @@ LDFLAGS = $(shell pkg-config --libs sdl3 sdl3-ttf sdl3-mixer sdl3-image) -lm
 PREFIX ?= /usr/local
 DESTDIR ?=
 
-VERSION = $(shell grep 'BASICA_VERSION' src/common.h | head -1 | sed 's/.*"\(.*\)".*/\1/')
-PACKAGE_NAME = basica-$(VERSION)
+VERSION = $(shell grep 'BASIKA_VERSION' src/common.h | head -1 | sed 's/.*"\(.*\)".*/\1/')
+PACKAGE_NAME = basika-$(VERSION)
 
 SRC = src/main.c src/lexer.c src/interpreter.c src/program.c src/graphics.c src/audio.c
 OBJ = $(SRC:.c=.o)
-TARGET = basica
+TARGET = basika
 
 all: $(TARGET)
 
@@ -31,12 +31,12 @@ clean:
 install: $(TARGET)
 	install -d $(DESTDIR)$(PREFIX)/bin
 	install -m 755 $(TARGET) $(DESTDIR)$(PREFIX)/bin/$(TARGET)
-	install -d $(DESTDIR)$(PREFIX)/share/basica/fonts
-	install -m 644 fonts/ModernDOS8x16.ttf $(DESTDIR)$(PREFIX)/share/basica/fonts/
+	install -d $(DESTDIR)$(PREFIX)/share/basika/fonts
+	install -m 644 fonts/ModernDOS8x16.ttf $(DESTDIR)$(PREFIX)/share/basika/fonts/
 
 uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/bin/$(TARGET)
-	rm -rf $(DESTDIR)$(PREFIX)/share/basica
+	rm -rf $(DESTDIR)$(PREFIX)/share/basika
 
 package: clean
 	rm -rf $(PACKAGE_NAME) $(PACKAGE_NAME).zip

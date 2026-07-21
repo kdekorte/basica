@@ -41,7 +41,7 @@ static int internal_argc = 0;
 static char **internal_argv = NULL;
 static char internal_command_line[1024] = "";
 
-static unsigned char basica_memory[65536];
+static unsigned char basika_memory[65536];
 
 static int last_expression_is_double = 0;
 
@@ -257,7 +257,7 @@ static void report_runtime_error(RuntimeError code) {
     stop_running = 1;
 }
 
-static double basica_rnd_next(void) {
+static double basika_rnd_next(void) {
     // Standard 31-bit LCG for cross-platform consistency.
     // This ensures RND results are the same on Windows, macOS, and Linux.
     rnd_seed = (rnd_seed * 1103515245 + 12345) & 0x7fffffff;
@@ -666,7 +666,7 @@ static double wall_time_seconds(void) {
     return (double)tv.tv_sec + (double)tv.tv_usec / 1000000.0;
 }
 
-void basica_trigger_key_event(int key_idx) {
+void basika_trigger_key_event(int key_idx) {
     if (key_idx >= 1 && key_idx < 32) {
         if (key_state[key_idx] == 1 || key_state[key_idx] == 2) {
             key_event_pending[key_idx] = 1;
@@ -760,7 +760,7 @@ static void maybe_queue_timer_event(void) {
     }
 }
 
-void basica_trigger_strig_event(int strig_idx, int pressed) {
+void basika_trigger_strig_event(int strig_idx, int pressed) {
     if (strig_idx >= 0 && strig_idx < 8) {
         if (pressed) {
             strig_button_pressed_since[strig_idx] = 1;
@@ -1523,7 +1523,7 @@ static void assign_input_value(int idx, int array_idx, int is_string, const char
     }
 }
 
-static void apply_basica_using(const char *fmt, double val, char *out, int out_size) {
+static void apply_basika_using(const char *fmt, double val, char *out, int out_size) {
     if (strchr(fmt, '%')) {
         snprintf(out, out_size, fmt, val);
         return;
@@ -1538,7 +1538,7 @@ static void apply_basica_using(const char *fmt, double val, char *out, int out_s
     else snprintf(out, out_size, "%g", val);
 }
 
-static void apply_basica_using_str(const char *fmt, const char *val, char *out, int out_size) {
+static void apply_basika_using_str(const char *fmt, const char *val, char *out, int out_size) {
     if (strchr(fmt, '%')) {
         snprintf(out, out_size, fmt, val);
         return;
@@ -1843,15 +1843,15 @@ static double primary_tok(TokenStream *ts) {
             case TOKEN_PEEK: {
                 int addr = (int)arg;
                 if (addr < 0 || addr >= 65536) return 0;
-                return basica_memory[addr];
+                return basika_memory[addr];
             }
             case TOKEN_RND:
                 if (has_arg && arg < 0) {
                     rnd_seed = (unsigned int)(-(long)arg);
-                    return basica_rnd_next();
+                    return basika_rnd_next();
                 }
                 if (has_arg && arg == 0) return last_rnd_value;
-                return basica_rnd_next();
+                return basika_rnd_next();
             default: return 0;
         }
     }
@@ -2180,16 +2180,16 @@ static double primary(const char **input) {
             case TOKEN_PEEK: {
                 int addr = (int)arg;
                 if (addr < 0 || addr >= 65536) return 0;
-                return basica_memory[addr];
+                return basika_memory[addr];
             }
             case TOKEN_RND:
                 if (has_arg && arg < 0) {
                     // RND with negative argument seeds the generator deterministically
                     rnd_seed = (unsigned int)(-(long)arg);
-                    return basica_rnd_next();
+                    return basika_rnd_next();
                 }
                 if (has_arg && arg == 0) return last_rnd_value;
-                return basica_rnd_next();
+                return basika_rnd_next();
             default: return 0;
         }
     }
@@ -2550,7 +2550,7 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct, int *last_line_
                     ptr = item_saved;
                     char value[256] = "";
                     parse_string_expression(&ptr, value, sizeof(value));
-                    if (using_mode) apply_basica_using_str(using_fmt, value, val_buf, sizeof(val_buf));
+                    if (using_mode) apply_basika_using_str(using_fmt, value, val_buf, sizeof(val_buf));
                     else strcpy(val_buf, value);
                     last_was_numeric = 0;
                 } else {
@@ -2559,7 +2559,7 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct, int *last_line_
                     double val = evaluate_expression(&ptr); 
                     int prec = last_expression_is_double ? 16 : 7;
 
-                    if (using_mode) apply_basica_using(using_fmt, val, val_buf, sizeof(val_buf));
+                    if (using_mode) apply_basika_using(using_fmt, val, val_buf, sizeof(val_buf));
                     else {
                         if (val >= 0) snprintf(val_buf, sizeof(val_buf), " %.*g ", prec, val);
                         else snprintf(val_buf, sizeof(val_buf), "%.*g ", prec, val);
@@ -2763,7 +2763,7 @@ void interpret_line_at_ptr(const char **ptr_addr, int is_direct, int *last_line_
             if (get_next_token(&ptr).type == TOKEN_COMMA) {
                 int val = (int)evaluate_expression(&ptr);
                 // Ensure address is within bounds before poking
-                if (addr >= 0 && addr < 65536) basica_memory[addr] = (unsigned char)(val & 0xFF);
+                if (addr >= 0 && addr < 65536) basika_memory[addr] = (unsigned char)(val & 0xFF);
             } else {
                 ptr = saved_comma;
             }
@@ -3943,7 +3943,7 @@ void run_program() {
                 if (idx == -1) idx = find_variable(var.text);
                 vars[idx].value = start;
 
-                // BASICA check: If the loop should not execute at all
+                // BASIKA check: If the loop should not execute at all
                 int should_skip = 0;
                 if (step > 0 && start > end) should_skip = 1;
                 else if (step < 0 && start < end) should_skip = 1;
@@ -4128,7 +4128,7 @@ void run_program() {
                         break;
                     }
                 } else {
-                    // If index is out of bounds, BASICA continues to the next statement
+                    // If index is out of bounds, BASIKA continues to the next statement
                     while (ts.pos < exec_stmt->token_count && ts.tokens[ts.pos].type != TOKEN_COLON) ts.pos++;
                 }
                 continue;

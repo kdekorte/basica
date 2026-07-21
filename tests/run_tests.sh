@@ -7,7 +7,7 @@ echo "Building..."
 make -s
 
 echo "Running demo/test_identifiers.bas"
-OUT=$(./basica demo/test_identifiers.bas 2>&1)
+OUT=$(./basika demo/test_identifiers.bas 2>&1)
 printf "%s\n" "$OUT"
 
 if echo "$OUT" | grep -q " 5 "; then
@@ -18,7 +18,7 @@ else
 fi
 
 echo "Running tests/args_test.bas with arguments"
-OUT=$(./basica tests/args_test.bas "hello" "world space" 2>&1)
+OUT=$(./basika tests/args_test.bas "hello" "world space" 2>&1)
 EXP="ARGC: 3 
 0: tests/args_test.bas
 1: hello
@@ -127,7 +127,7 @@ for t in "${TESTS[@]}"; do
 
   if [ "$t" = "tests/auto_screenshot" ]; then
     rm -f tests/auto_out.png
-    OUT=$(./basica --headless "$t.bas" 2>&1)
+    OUT=$(./basika --headless "$t.bas" 2>&1)
     if [ ! -f tests/auto_out.png ]; then
       echo "$t FAIL: screenshot file tests/auto_out.png not found"
       exit 2
@@ -135,14 +135,14 @@ for t in "${TESTS[@]}"; do
     rm -f tests/auto_out.png
   elif [ "$t" = "tests/graphics_primitives" ]; then
     rm -f tests/graphics_primitives.png
-    OUT=$(./basica --headless "$t.bas" 2>&1)
+    OUT=$(./basika --headless "$t.bas" 2>&1)
     if [ ! -f tests/graphics_primitives.png ]; then
       echo "$t FAIL: screenshot file tests/graphics_primitives.png not found"
       exit 2
     fi
     rm -f tests/graphics_primitives.png
   else
-    OUT=$(./basica "$t.bas" 2>&1)
+    OUT=$(./basika "$t.bas" 2>&1)
   fi
 
   EXP_FILE="$t.expected"

@@ -1,7 +1,7 @@
-class Basica < Formula
+class Basika < Formula
   desc "Small IBM BASICA-compatible interpreter clone written in C"
-  homepage "https://github.com/kdekorte/basica"
-  url "https://github.com/kdekorte/basica/releases/download/v0.99.1/basica-0.99.1.zip"
+  homepage "https://github.com/kdekorte/basika"
+  url "https://github.com/kdekorte/basika/releases/download/v0.99.1/basika-0.99.1.zip"
   sha256 "88ca11c45835aaa0115d40e1edde5d9fcf13e4d04fd3436eb4981607d440d043"
   license "MIT"
 
@@ -17,6 +17,6 @@ class Basica < Formula
   end
 
   test do
-    assert_match "BASICA", shell_output("#{bin}/basica --version")
+    assert_match "BASIKA", shell_output("#{bin}/basika --version")
   end
 end

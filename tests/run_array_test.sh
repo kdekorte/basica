@@ -7,7 +7,7 @@ echo "Building..."
 make -s
 
 echo "Running array test"
-OUT=$(./basica tests/array_test.bas 2>&1)
+OUT=$(./basika tests/array_test.bas 2>&1)
 printf "%s\n" "$OUT"
 
 EXP=$(cat tests/array_test.expected)

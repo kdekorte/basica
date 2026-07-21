@@ -457,7 +457,7 @@ int init_graphics() {
     if (headless_mode) {
         flags |= SDL_WINDOW_HIDDEN;
     }
-    window = SDL_CreateWindow("BASICA Virtual Framebuffer", 1024, 768, flags);
+    window = SDL_CreateWindow("BASIKA Virtual Framebuffer", 1024, 768, flags);
         
     if (!window) return 0;
     renderer = SDL_CreateRenderer(window, NULL); // Use default renderer flags
@@ -467,7 +467,7 @@ int init_graphics() {
     // Search for Modern DOS fonts in common directories and use the first one found.
     const char *font_candidates[] = {
         "./fonts/ModernDOS8x16.ttf",
-        "/usr/local/share/basica/fonts/ModernDOS8x16.ttf",
+        "/usr/local/share/basika/fonts/ModernDOS8x16.ttf",
         "./ModernDOS8x16.ttf",
         "./ModernDOS9x18.ttf",
         "./ModernDOS10x20.ttf",
@@ -1018,7 +1018,7 @@ void handle_events() {
                     break;
             }
             if (trap_idx > 0) {
-                basica_trigger_key_event(trap_idx);
+                basika_trigger_key_event(trap_idx);
             }
         }
     }

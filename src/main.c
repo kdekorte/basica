@@ -37,7 +37,7 @@ void repl() {
     char buffer[256];
     int active = graphics_is_active();
     char header[128];
-    snprintf(header, sizeof(header), "IBM BASICA Clone (DOS 2.1) v%s\nREADY.\n", BASICA_VERSION);
+    snprintf(header, sizeof(header), "IBM BASIKA Clone (DOS 2.1) v%s\nREADY.\n", BASIKA_VERSION);
     if (!quiet_mode) {
         if (active) graphics_print(header);
         else printf("%s", header);
@@ -87,7 +87,7 @@ void run_file(const char *filename) {
     run_program();
 
     if (graphics_is_active()) {
-        if (!exit_on_finish) set_window_title("BASICA Virtual Framebuffer - Press any key to quit...");
+        if (!exit_on_finish) set_window_title("BASIKA Virtual Framebuffer - Press any key to quit...");
         graphics_present_now();
         if (!exit_on_finish) wait_for_keypress();
     }
@@ -118,7 +118,7 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "-x") == 0 || strcmp(argv[i], "--exit-on-finish") == 0) {
             exit_on_finish = 1;
         } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--version") == 0) {
-            printf("BASICA %s\n", BASICA_VERSION);
+            printf("BASIKA %s\n", BASIKA_VERSION);
             return 0;
         } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             print_usage(argv[0]);

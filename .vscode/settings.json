@@ -1,8 +1,8 @@
 {
     "chat.tools.terminal.autoApprove": {
-        "./basica": true,
+        "./basika": true,
         "make": true,
-        "/^cd /Users/kdekorte/Projects/basica && python3 - <<'PY'\nimport re\nfrom pathlib import Path\ntext = Path\\('src/lexer\\.c'\\)\\.read_text\\(\\)\nkeys = re\\.findall\\(r'\\\\\\{\"\\(\\[\\^\"\\\\\\\\\\]\\*\\)\", TOKEN_\\[A-Z0-9_\\]\\+\\\\\\}', text\\)\nfor i in range\\(1,len\\(keys\\)\\):\n    if keys\\[i-1\\]\\.lower\\(\\) > keys\\[i\\]\\.lower\\(\\):\n        print\\(i, keys\\[i-1\\], keys\\[i\\]\\)\nPY$/": {
+        "/^cd /Users/kdekorte/Projects/basika && python3 - <<'PY'\nimport re\nfrom pathlib import Path\ntext = Path\\('src/lexer\\.c'\\)\\.read_text\\(\\)\nkeys = re\\.findall\\(r'\\\\\\{\"\\(\\[\\^\"\\\\\\\\\\]\\*\\)\", TOKEN_\\[A-Z0-9_\\]\\+\\\\\\}', text\\)\nfor i in range\\(1,len\\(keys\\)\\):\n    if keys\\[i-1\\]\\.lower\\(\\) > keys\\[i\\]\\.lower\\(\\):\n        print\\(i, keys\\[i-1\\], keys\\[i\\]\\)\nPY$/": {
             "approve": true,
             "matchCommandLine": true
         },

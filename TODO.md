@@ -1,4 +1,4 @@
-# Basica TODO
+# Basika TODO
 
 ## Short-term improvements
 

@@ -1,4 +1,4 @@
-# Supported BASICA Keywords and Syntax
+# Supported BASIKA Keywords and Syntax
 
 ## Line Numbers and Labels
 

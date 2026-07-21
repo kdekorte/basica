@@ -8,7 +8,7 @@
 
 #define AUDIO_RATE 44100
 #define AUDIO_AMPLITUDE 9000
-#define BASICA_TICKS_PER_SECOND 18.2
+#define BASIKA_TICKS_PER_SECOND 18.2
 
 static MIX_Mixer *mixer = NULL;
 static int audio_attempted = 0;
@@ -55,11 +55,11 @@ static int audio_init(void) {
     return 1;
 }
 
-/* ticks_to_ms - Convert BASICA timer ticks (18.2 ticks/sec) to
+/* ticks_to_ms - Convert BASIKA timer ticks (18.2 ticks/sec) to
  * milliseconds, rounding to the nearest integer */
 static int ticks_to_ms(double ticks) {
     if (ticks <= 0) return 0;
-    return (int)((ticks * 1000.0 / BASICA_TICKS_PER_SECOND) + 0.5);
+    return (int)((ticks * 1000.0 / BASIKA_TICKS_PER_SECOND) + 0.5);
 }
 
 /* delay_ms - Sleep for the given number of milliseconds using SDL_Delay */
@@ -97,7 +97,7 @@ static MIX_Audio *make_square_wave(double frequency, int ms) {
 }
 
 /* audio_sound - Play a square wave tone at the given frequency (Hz) for
- * the given duration (in BASICA timer ticks). Implements the SOUND
+ * the given duration (in BASIKA timer ticks). Implements the SOUND
  * statement. Falls back to a silent delay if audio init fails */
 void audio_sound(double frequency, double duration_ticks) {
     int ms = ticks_to_ms(duration_ticks);
@@ -211,7 +211,7 @@ void audio_play(const char *mml) {
             }
 
             int ms = note_ms(tempo, length, dots);
-            audio_sound(note_frequency(note, octave), ms * BASICA_TICKS_PER_SECOND / 1000.0);
+            audio_sound(note_frequency(note, octave), ms * BASIKA_TICKS_PER_SECOND / 1000.0);
         }
     }
 }
